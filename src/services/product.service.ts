@@ -1,3 +1,53 @@
+/**
+ * Servicio de gestión de productos y catálogo
+ *
+ * Este módulo proporciona todas las operaciones relacionadas con el catálogo
+ * de productos de la aplicación Mercador, incluyendo CRUD completo, búsqueda,
+ * filtrado, paginación y gestión de imágenes. Utiliza Supabase para persistir
+ * los productos y un bucket de almacenamiento para las imágenes.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ CRUD completo de productos
+ * - ✅ Búsqueda y filtrado por categoría/nombre
+ * - ✅ Paginación de resultados
+ * - ✅ Subida y gestión de imágenes
+ * - ✅ Gestión de stock y inventario
+ * - ✅ Creación automática de claves de producto
+ * - ✅ Validación de datos de productos
+ *
+ * @module services/product.service
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   listProducts,
+ *   createProduct,
+ *   updateProduct,
+ *   deleteProduct
+ * } from './services/product.service'
+ *
+ * // Listar productos con filtros
+ * const products = await listProducts({
+ *   page: 1,
+ *   limit: 20,
+ *   category: 'software',
+ *   search: 'antivirus'
+ * })
+ *
+ * // Crear nuevo producto
+ * const newProduct = await createProduct({
+ *   name: 'Antivirus Pro',
+ *   description: 'Protección completa',
+ *   price: 49.99,
+ *   category: 'security',
+ *   stock_quantity: 100,
+ *   image_file: imageBuffer
+ * })
+ *
+ * // Actualizar producto
+ * await updateProduct(productId, { price: 59.99 })
+ * ```
+ */
 
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { SUPABASE_URL, BUCKET_ACCESS_ID, BUCKET_ACCESS_KEY } from '../config/env.js'

@@ -1,3 +1,46 @@
+/**
+ * Servicio de gestión de órdenes y pedidos
+ *
+ * Este módulo proporciona todas las operaciones relacionadas con la gestión
+ * de órdenes de compra, incluyendo creación desde el carrito, consulta,
+ * actualización de estados y cancelación. Utiliza Supabase para persistir
+ * las órdenes y sus items asociados.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Crear orden desde items del carrito
+ * - ✅ Obtener órdenes del usuario
+ * - ✅ Obtener detalles de orden específica
+ * - ✅ Actualizar estado de la orden
+ * - ✅ Cancelar orden (con validaciones)
+ * - ✅ Validación de stock antes de crear orden
+ * - ✅ Cálculo automático de totales
+ * - ✅ Gestión de items de la orden
+ *
+ * @module services/order.service
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   createOrder,
+ *   getUserOrders,
+ *   updateOrderStatus
+ * } from './services/order.service'
+ *
+ * // Crear orden desde el carrito
+ * const orderData = {
+ *   shippingAddress: userAddress,
+ *   paymentMethod: 'credit_card'
+ * }
+ * const newOrder = await createOrder(userId, orderData)
+ *
+ * // Obtener órdenes del usuario
+ * const orders = await getUserOrders(userId)
+ *
+ * // Actualizar estado de orden
+ * await updateOrderStatus(orderId, 'shipped')
+ * ```
+ */
+
 import { supabase } from '../config/supabase.js'
 
 export interface Order {

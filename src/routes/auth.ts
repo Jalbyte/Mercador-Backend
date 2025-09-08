@@ -1,3 +1,42 @@
+/**
+ * Rutas de autenticación para la aplicación Mercador
+ *
+ * Este módulo define todas las rutas relacionadas con autenticación de usuarios,
+ * incluyendo registro, login, recuperación de contraseña, y gestión de sesiones.
+ * Utiliza Supabase Auth para la autenticación y Zod para validación de datos.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Registro de usuarios con validación de email y contraseña
+ * - ✅ Login con email/contraseña y magic links
+ * - ✅ Recuperación y actualización de contraseñas
+ * - ✅ Verificación de email y códigos de verificación
+ * - ✅ Logout y limpieza de sesiones
+ * - ✅ Refresh de tokens JWT
+ * - ✅ Manejo de cookies de sesión seguras
+ * - ✅ Protección CSRF
+ *
+ * @module routes/auth
+ *
+ * @example
+ * ```typescript
+ * import authRoutes from './routes/auth'
+ *
+ * // Registrar rutas de autenticación
+ * app.route('/auth', authRoutes)
+ *
+ * // Rutas disponibles:
+ * // POST /auth/signup - Registro de usuario
+ * // POST /auth/login - Login con email/contraseña
+ * // POST /auth/magic-link - Login con magic link
+ * // POST /auth/refresh - Refresh de token
+ * // POST /auth/logout - Logout
+ * // POST /auth/reset-password - Solicitar reset de contraseña
+ * // POST /auth/update-password - Actualizar contraseña
+ * // POST /auth/verify-email - Verificar email
+ * // POST /auth/verify-code - Verificar código
+ * ```
+ */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import jwt from 'jsonwebtoken'
 import { issueCsrfCookie } from '../middlewares/csrf.js'

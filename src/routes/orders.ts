@@ -1,3 +1,38 @@
+/**
+ * Rutas de gestión de órdenes y pedidos
+ *
+ * Este módulo define todas las rutas relacionadas con la gestión de órdenes
+ * de compra en la aplicación Mercador, incluyendo creación, consulta,
+ * actualización de estado y cancelación de pedidos.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Crear nueva orden desde el carrito
+ * - ✅ Obtener órdenes del usuario
+ * - ✅ Obtener detalles de una orden específica
+ * - ✅ Actualizar estado de la orden
+ * - ✅ Cancelar orden (si está pendiente)
+ * - ✅ Validación de stock antes de crear orden
+ * - ✅ Cálculo automático de totales
+ *
+ * @module routes/orders
+ *
+ * @example
+ * ```typescript
+ * import orderRoutes from './routes/orders'
+ *
+ * // Registrar rutas de órdenes (requieren autenticación)
+ * app.use('/orders/*', authMiddleware)
+ * app.route('/orders', orderRoutes)
+ *
+ * // Rutas disponibles:
+ * // GET /orders - Obtener órdenes del usuario
+ * // GET /orders/:id - Obtener orden específica
+ * // POST /orders - Crear nueva orden
+ * // PUT /orders/:id/status - Actualizar estado de orden
+ * // DELETE /orders/:id - Cancelar orden
+ * ```
+ */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as orderService from '../services/order.service.js'
 

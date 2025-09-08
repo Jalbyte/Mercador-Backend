@@ -1,3 +1,38 @@
+/**
+ * Rutas de gestión del carrito de compras
+ *
+ * Este módulo define todas las rutas relacionadas con el carrito de compras
+ * de la aplicación Mercador, incluyendo operaciones CRUD para items del carrito,
+ * cálculo de totales y gestión de cantidades.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Obtener carrito del usuario
+ * - ✅ Agregar productos al carrito
+ * - ✅ Actualizar cantidad de items
+ * - ✅ Eliminar items del carrito
+ * - ✅ Limpiar carrito completo
+ * - ✅ Cálculo automático de totales
+ * - ✅ Validación de stock y cantidades
+ *
+ * @module routes/cart
+ *
+ * @example
+ * ```typescript
+ * import cartRoutes from './routes/cart'
+ *
+ * // Registrar rutas del carrito (requieren autenticación)
+ * app.use('/cart/*', authMiddleware)
+ * app.route('/cart', cartRoutes)
+ *
+ * // Rutas disponibles:
+ * // GET /cart - Obtener carrito del usuario
+ * // POST /cart - Agregar producto al carrito
+ * // PUT /cart/:itemId - Actualizar cantidad de item
+ * // DELETE /cart/:itemId - Eliminar item del carrito
+ * // DELETE /cart - Limpiar carrito completo
+ * ```
+ */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as cartService from '../services/cart.service.js'
 

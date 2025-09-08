@@ -5,14 +5,49 @@ import { pino } from 'pino'
 import { LOG_LEVEL } from '../config/env.js'
 import jwt from 'jsonwebtoken'
 
+/**
+ * Middleware de autenticación avanzado con caching Redis
+ *
+ * Este módulo proporciona middlewares de autenticación que incluyen:
+ * - Validación de tokens JWT con Supabase
+ * - Caching de usuarios en Redis para mejorar rendimiento
+ * - Soporte para autenticación requerida y opcional
+ * - Extracción de tokens desde headers Authorization o cookies
+ *
+ * @module middlewares/authMiddleware
+ */
+
 const logger = pino({ level: LOG_LEVEL })
 
+/**
+ * Estructura de usuario cacheado en Redis
+ *
+ * Contiene la información básica del usuario almacenada en cache
+ * para evitar consultas repetidas a Supabase.
+ */
 type CachedUser = {
+  /** ID único del usuario */
   id: string
+  /** Email del usuario (puede ser null) */
   email: string | null
+  /** Rol del usuario (opcional, por defecto 'cliente') */
   role?: string
 }
 
+/**
+ * Calcula el tiempo de vida restante de un token JWT
+ *
+ * Analiza el token JWT para determinar cuánto tiempo le queda de vida
+ * y calcula un TTL apropiado para el cache, con un buffer de seguridad.
+ *
+ * @param token - Token JWT a analizar
+ * @returns Tiempo de vida en segundos (mínimo 60s, máximo 6 horas)
+ *
+ * @example
+ * ```typescript
+ * const ttl = getTokenTTLSeconds(token) // Retorna tiempo restante en segundos
+ * ```
+ */
 function getTokenTTLSeconds(token: string): number {
   try {
     const decoded = jwt.decode(token) as { exp?: number } | null
@@ -26,6 +61,23 @@ function getTokenTTLSeconds(token: string): number {
   return 5 * 60
 }
 
+/**
+ * Obtiene un usuario desde el cache de Redis
+ *
+ * Busca la información del usuario en Redis usando el token como clave.
+ * Si el usuario está en cache, evita la consulta a Supabase.
+ *
+ * @param token - Token JWT del usuario
+ * @returns Información del usuario cacheado o null si no existe
+ *
+ * @example
+ * ```typescript
+ * const cachedUser = await getCachedUser(token)
+ * if (cachedUser) {
+ *   // Usar datos del cache
+ * }
+ * ```
+ */
 async function getCachedUser(token: string): Promise<CachedUser | null> {
   try {
     const client = await initRedis(logger)
@@ -37,6 +89,21 @@ async function getCachedUser(token: string): Promise<CachedUser | null> {
   }
 }
 
+/**
+ * Almacena la información de un usuario en el cache de Redis
+ *
+ * Guarda la información del usuario en Redis con un TTL basado
+ * en la expiración del token JWT.
+ *
+ * @param token - Token JWT del usuario (usado como clave)
+ * @param user - Información del usuario a cachear
+ * @param ttlSeconds - Tiempo de vida en segundos
+ *
+ * @example
+ * ```typescript
+ * await setCachedUser(token, userData, 300) // Cache por 5 minutos
+ * ```
+ */
 async function setCachedUser(token: string, user: CachedUser, ttlSeconds: number): Promise<void> {
   try {
     const client = await initRedis(logger)
@@ -46,6 +113,29 @@ async function setCachedUser(token: string, user: CachedUser, ttlSeconds: number
   }
 }
 
+/**
+ * Middleware de autenticación requerida con caching
+ *
+ * Valida que el usuario esté autenticado y cachea la información del usuario
+ * en Redis para mejorar el rendimiento de requests subsiguientes. Extrae
+ * el token desde el header Authorization o la cookie `sb_access_token`.
+ *
+ * @param c - Contexto de Hono
+ * @param next - Función para continuar con el siguiente middleware
+ * @returns Respuesta JSON con error 401 si la autenticación falla
+ *
+ * @example
+ * ```typescript
+ * import { authMiddleware } from './middlewares/authMiddleware'
+ *
+ * app.get('/api/profile', authMiddleware, async (c) => {
+ *   const userId = c.get('userId')
+ *   const userEmail = c.get('userEmail')
+ *   const userRole = c.get('userRole')
+ *   // ... lógica de la ruta
+ * })
+ * ```
+ */
 export async function authMiddleware(c: Context, next: Next) {
   try {
     let token: string | undefined
@@ -107,7 +197,31 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 }
 
-// Optional auth middleware: if token present, validate with Supabase and set ctx, otherwise continue
+/**
+ * Middleware de autenticación opcional con caching
+ *
+ * Similar al middleware requerido pero no lanza errores si no hay token.
+ * Si se proporciona un token válido, valida con Supabase y cachea la información.
+ * Útil para rutas que funcionan tanto para usuarios autenticados como anónimos.
+ *
+ * @param c - Contexto de Hono
+ * @param next - Función para continuar con el siguiente middleware
+ *
+ * @example
+ * ```typescript
+ * import { optionalAuthMiddleware } from './middlewares/authMiddleware'
+ *
+ * app.get('/api/products', optionalAuthMiddleware, async (c) => {
+ *   const userId = c.get('userId') // Puede ser undefined
+ *   const isAuthenticated = !!userId
+ *
+ *   if (isAuthenticated) {
+ *     // Personalizar respuesta para usuarios autenticados
+ *   }
+ *   // Continuar con lógica normal
+ * })
+ * ```
+ */
 export async function optionalAuthMiddleware(c: Context, next: Next) {
   try {
     let token: string | undefined

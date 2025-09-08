@@ -1,3 +1,43 @@
+/**
+ * Servicio de cache y almacenamiento temporal con Redis
+ *
+ * Este módulo proporciona una interfaz unificada para interactuar con Redis,
+ * soportando múltiples modos de conexión (TCP, Upstash REST, o desarrollo local).
+ * Ofrece operaciones básicas de cache con soporte para TTL y manejo automático
+ * de reconexiones.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Conexión automática a Redis según configuración
+ * - ✅ Operaciones básicas: set, get, del, exists
+ * - ✅ Soporte para TTL (time-to-live)
+ * - ✅ Compatibilidad con múltiples proveedores Redis
+ * - ✅ Modo desarrollo con stub en memoria
+ * - ✅ Manejo automático de reconexiones
+ * - ✅ Logging de operaciones
+ *
+ * @module services/redis.service
+ *
+ * @example
+ * ```typescript
+ * import { redisService } from './services/redis.service'
+ *
+ * // Almacenar valor con TTL
+ * await redisService.set('user:123', JSON.stringify(userData), 3600)
+ *
+ * // Obtener valor
+ * const userData = await redisService.get('user:123')
+ * if (userData) {
+ *   const user = JSON.parse(userData)
+ * }
+ *
+ * // Verificar existencia
+ * const exists = await redisService.exists('user:123')
+ *
+ * // Eliminar clave
+ * await redisService.del('user:123')
+ * ```
+ */
+
 import { initRedis, getRedisMode } from '../config/redis.js'
 import { logger } from '../utils/logger.js'
 

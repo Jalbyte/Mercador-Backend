@@ -1,3 +1,53 @@
+/**
+ * Utilidades para manejo de errores en la aplicación Mercador
+ *
+ * Este módulo proporciona clases de error personalizadas y funciones
+ * de formateo para un manejo consistente de errores en toda la aplicación.
+ * Todas las clases de error extienden de la clase base AppError y incluyen
+ * códigos de estado HTTP apropiados.
+ *
+ * Clases de error disponibles:
+ * - AppError: Clase base para errores de aplicación
+ * - ValidationError: Errores de validación (400)
+ * - AuthenticationError: Errores de autenticación (401)
+ * - AuthorizationError: Errores de autorización (403)
+ * - NotFoundError: Recursos no encontrados (404)
+ * - ConflictError: Conflictos de recursos (409)
+ *
+ * @module utils/errors
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   ValidationError,
+ *   AuthenticationError,
+ *   NotFoundError,
+ *   formatError
+ * } from './utils/errors'
+ *
+ * // Lanzar errores específicos
+ * if (!user) {
+ *   throw new AuthenticationError('Usuario no autenticado')
+ * }
+ *
+ * if (!product) {
+ *   throw new NotFoundError('Producto')
+ * }
+ *
+ * if (!isValidEmail(email)) {
+ *   throw new ValidationError('Email inválido')
+ * }
+ *
+ * // Formatear errores para respuesta JSON
+ * try {
+ *   // código que puede fallar
+ * } catch (error) {
+ *   const errorResponse = formatError(error)
+ *   return c.json(errorResponse, error.statusCode || 500)
+ * }
+ * ```
+ */
+
 export class AppError extends Error {
   public statusCode: number
   public isOperational: boolean

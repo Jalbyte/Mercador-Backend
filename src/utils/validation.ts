@@ -1,3 +1,51 @@
+/**
+ * Utilidades de validación de datos para la aplicación Mercador
+ *
+ * Este módulo proporciona funciones de validación comunes para validar
+ * emails, UUIDs, números, strings y otros tipos de datos. Incluye
+ * sanitización de inputs y validación de campos requeridos.
+ *
+ * Funciones de validación disponibles:
+ * - isValidEmail: Valida formato de email
+ * - isValidUUID: Valida formato UUID v4
+ * - isPositiveNumber: Valida números positivos
+ * - isNonEmptyString: Valida strings no vacíos
+ * - sanitizeString: Sanitiza strings removiendo caracteres peligrosos
+ * - validateRequired: Valida campos requeridos en objetos
+ *
+ * @module utils/validation
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   isValidEmail,
+ *   isValidUUID,
+ *   validateRequired,
+ *   sanitizeString
+ * } from './utils/validation'
+ *
+ * // Validar email
+ * if (!isValidEmail(email)) {
+ *   throw new ValidationError('Email inválido')
+ * }
+ *
+ * // Validar UUID
+ * if (!isValidUUID(productId)) {
+ *   throw new ValidationError('ID de producto inválido')
+ * }
+ *
+ * // Validar campos requeridos
+ * const userData = { name: 'Juan', email: '' }
+ * const missing = validateRequired(userData, ['name', 'email'])
+ * if (missing.length > 0) {
+ *   throw new ValidationError(`Campos requeridos: ${missing.join(', ')}`)
+ * }
+ *
+ * // Sanitizar input del usuario
+ * const cleanInput = sanitizeString(userInput)
+ * ```
+ */
+
 // Basic validation utilities
 export const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

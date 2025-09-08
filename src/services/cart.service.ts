@@ -1,3 +1,38 @@
+/**
+ * Servicio de gestión del carrito de compras
+ *
+ * Este módulo proporciona todas las operaciones relacionadas con el carrito
+ * de compras de los usuarios, incluyendo consulta, modificación y cálculo
+ * de totales. Utiliza Supabase como base de datos para persistir los items
+ * del carrito.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Obtener carrito completo del usuario
+ * - ✅ Agregar productos al carrito
+ * - ✅ Actualizar cantidad de items
+ * - ✅ Eliminar items del carrito
+ * - ✅ Limpiar carrito completo
+ * - ✅ Cálculo automático de totales
+ * - ✅ Validación de productos existentes
+ *
+ * @module services/cart.service
+ *
+ * @example
+ * ```typescript
+ * import { getUserCart, addToCart, updateCartItem } from './services/cart.service'
+ *
+ * // Obtener carrito del usuario
+ * const cart = await getUserCart(userId)
+ * console.log(`Total: $${cart.total}, Items: ${cart.itemCount}`)
+ *
+ * // Agregar producto al carrito
+ * const newItem = await addToCart(userId, productId, 2)
+ *
+ * // Actualizar cantidad
+ * await updateCartItem(itemId, 5)
+ * ```
+ */
+
 import { supabase } from '../config/supabase.js'
 
 export interface CartItem {

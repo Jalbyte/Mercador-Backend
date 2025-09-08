@@ -1,3 +1,42 @@
+/**
+ * Rutas de gestión de productos y claves de licencia
+ *
+ * Este módulo define todas las rutas relacionadas con el catálogo de productos
+ * y la gestión de claves de licencia en la aplicación Mercador. Incluye
+ * operaciones CRUD para productos y gestión completa del ciclo de vida
+ * de las claves de licencia.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ CRUD completo de productos
+ * - ✅ Gestión de claves de licencia
+ * - ✅ Búsqueda y filtrado de productos
+ * - ✅ Paginación de resultados
+ * - ✅ Validación de stock
+ * - ✅ Gestión de imágenes de productos
+ * - ✅ Activación y expiración de licencias
+ *
+ * @module routes/products
+ *
+ * @example
+ * ```typescript
+ * import productRoutes from './routes/products'
+ *
+ * // Registrar rutas de productos
+ * app.route('/products', productRoutes)
+ *
+ * // Rutas disponibles:
+ * // GET /products - Listar productos con filtros
+ * // GET /products/:id - Obtener producto específico
+ * // POST /products - Crear nuevo producto (admin)
+ * // PUT /products/:id - Actualizar producto (admin)
+ * // DELETE /products/:id - Eliminar producto (admin)
+ * // GET /products/:id/keys - Listar claves de producto
+ * // POST /products/:id/keys - Crear clave de producto
+ * // PUT /products/keys/:keyId - Actualizar clave
+ * // DELETE /products/keys/:keyId - Eliminar clave
+ * ```
+ */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as productService from '../services/product.service.js'
 import * as productKeyService from '../services/product_key.service.js'
@@ -26,6 +65,8 @@ const CreateProductKeyData = z.object({
   expiration_date: z.string().optional(),
   activation_limit: z.number().int().optional()
 })
+
+const CreateProductKeyInputData = CreateProductKeyData.omit({ product_id: true })
 // Product Key Endpoints
 const listProductKeysRoute = createRoute({
   method: 'get',
@@ -63,7 +104,7 @@ const createProductKeyRoute = createRoute({
     params: z.object({ productId: z.string() }),
     body: {
       content: {
-        'application/json': { schema: CreateProductKeyData }
+        'application/json': { schema: CreateProductKeyInputData }
       },
       required: true
     }
@@ -142,7 +183,7 @@ const CreateProductData = z.object({
   stock_quantity: z.number().int().min(0)
   // allow creating product with keys
 }).extend({
-  product_keys: z.array(CreateProductKeyData).optional()
+  product_keys: z.array(CreateProductKeyInputData).optional()
 })
 
 const UpdateProductData = CreateProductData.partial()

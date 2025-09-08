@@ -1,3 +1,51 @@
+/**
+ * Servicio de gestión de claves de producto y licencias
+ *
+ * Este módulo proporciona todas las operaciones relacionadas con la gestión
+ * de claves de licencia de productos en la aplicación Mercador. Maneja el
+ * ciclo de vida completo de las licencias, incluyendo creación, asignación
+ * a usuarios, activación y expiración.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Crear nuevas claves de producto
+ * - ✅ Listar claves por producto o todas
+ * - ✅ Actualizar información de claves
+ * - ✅ Eliminar claves
+ * - ✅ Gestión de estados de activación
+ * - ✅ Control de límites de activación
+ * - ✅ Fechas de expiración
+ * - ✅ Asignación a usuarios específicos
+ *
+ * @module services/product_key.service
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   createProductKey,
+ *   listProductKeys,
+ *   updateProductKey
+ * } from './services/product_key.service'
+ *
+ * // Crear nueva clave de producto
+ * const newKey = await createProductKey({
+ *   product_id: 'product-123',
+ *   license_key: 'XXXX-XXXX-XXXX-XXXX',
+ *   status: 'available',
+ *   activation_limit: 3,
+ *   expiration_date: '2024-12-31'
+ * })
+ *
+ * // Listar claves de un producto
+ * const keys = await listProductKeys('product-123')
+ *
+ * // Actualizar clave (asignar a usuario)
+ * await updateProductKey(keyId, {
+ *   user_id: 'user-456',
+ *   status: 'activated'
+ * })
+ * ```
+ */
+
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 
 export interface ProductKey {

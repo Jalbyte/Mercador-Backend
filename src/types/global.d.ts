@@ -1,3 +1,28 @@
+/**
+ * Definiciones de tipos globales para la aplicación Mercador
+ *
+ * Este archivo contiene todas las definiciones de tipos TypeScript globales
+ * utilizadas en la aplicación. Incluye extensiones del contexto de Hono,
+ * tipos de base de datos y otras definiciones compartidas.
+ *
+ * @module types/global
+ *
+ * @example
+ * ```typescript
+ * // Los tipos definidos aquí están disponibles globalmente
+ * // sin necesidad de importar
+ *
+ * interface ContextVariableMap {
+ *   userId?: string        // ID del usuario autenticado
+ *   userEmail?: string     // Email del usuario autenticado
+ *   tokenPayload?: {       // Payload del token JWT
+ *     userId: string
+ *     email: string
+ *   }
+ * }
+ * ```
+ */
+
 // Global type definitions
 
 import type { Hono } from 'hono'

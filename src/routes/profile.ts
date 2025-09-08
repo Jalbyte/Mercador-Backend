@@ -1,3 +1,33 @@
+/**
+ * Rutas de gestión de perfiles de usuario
+ *
+ * Este módulo define todas las rutas relacionadas con la gestión de perfiles
+ * de usuario en la aplicación Mercador, incluyendo consulta y actualización
+ * de información personal, subida de imágenes de perfil y gestión de datos.
+ *
+ * Funcionalidades implementadas:
+ * - ✅ Obtener perfil del usuario actual
+ * - ✅ Actualizar información del perfil
+ * - ✅ Subir imagen de perfil
+ * - ✅ Validación de datos de perfil
+ * - ✅ Integración con autenticación
+ *
+ * @module routes/profile
+ *
+ * @example
+ * ```typescript
+ * import { profileRoutes } from './routes/profile'
+ *
+ * // Registrar rutas de perfil (requieren autenticación)
+ * app.use('/profile/*', authMiddleware)
+ * app.route('/profile', profileRoutes)
+ *
+ * // Rutas disponibles:
+ * // GET /profile - Obtener perfil del usuario
+ * // PUT /profile - Actualizar perfil del usuario
+ * ```
+ */
+
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as userService from '../services/user.service.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'

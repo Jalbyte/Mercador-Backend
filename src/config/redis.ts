@@ -11,11 +11,40 @@ import {
   UPSTASH_REDIS_REST_TOKEN,
 } from './env.js'
 
+/**
+ * Configuración y gestión de conexiones Redis para la aplicación Mercador
+ *
+ * Este módulo maneja la inicialización y configuración de Redis con soporte
+ * para múltiples modos de conexión:
+ * - Modo desarrollo: Stub en memoria sin conexión externa
+ * - Modo Upstash REST: Para servicios Redis en la nube
+ * - Modo TCP: Conexión directa a servidor Redis
+ *
+ * @module config/redis
+ */
+
 let redisClient: any = null
 let mode: 'tcp' | 'rest' | null = null
 
 /**
- * Inicializa Redis en modo Upstash REST o TCP.
+ * Inicializa la conexión a Redis según la configuración disponible
+ *
+ * Esta función configura Redis de manera inteligente basándose en las variables
+ * de entorno disponibles. En desarrollo usa un stub en memoria, mientras que
+ * en producción puede usar Upstash REST o conexión TCP directa.
+ *
+ * @param logger - Instancia del logger para registrar eventos de conexión
+ * @returns Cliente Redis configurado y conectado
+ * @throws Error si falla la conexión a Redis en modos de producción
+ *
+ * @example
+ * ```typescript
+ * import { initRedis } from './config/redis'
+ * import { logger } from './utils/logger'
+ *
+ * const redis = await initRedis(logger)
+ * await redis.set('key', 'value')
+ * ```
  */
 export async function initRedis(logger: pino.Logger) {
   if (redisClient) return redisClient
@@ -108,6 +137,22 @@ export async function initRedis(logger: pino.Logger) {
   }
 }
 
+/**
+ * Obtiene el modo actual de conexión a Redis
+ *
+ * Esta función retorna el modo de conexión actualmente configurado,
+ * útil para logging y debugging.
+ *
+ * @returns Modo de conexión actual ('tcp', 'rest', o null para desarrollo)
+ *
+ * @example
+ * ```typescript
+ * import { getRedisMode } from './config/redis'
+ *
+ * const mode = getRedisMode()
+ * console.log(`Redis mode: ${mode}`) // 'tcp', 'rest', or null
+ * ```
+ */
 export function getRedisMode() {
   return mode
 }

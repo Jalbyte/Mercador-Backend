@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Servicio de usuarios para Mercador.
+ * Maneja operaciones relacionadas con autenticación, perfiles de usuario y MFA.
+ *
+ * @author Equipo de Desarrollo Mercador
+ * @version 1.0.0
+ * @since 2024
+ */
+
 import type { Factor, Session } from '@supabase/supabase-js'
 import { createClient } from '@supabase/supabase-js'
 import { APP_REDIRECT_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/env.js'
@@ -7,23 +16,42 @@ import { Context } from 'hono'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
 
 /**
- * Tipo de perfil de usuario
+ * Interfaz que representa el perfil de un usuario en el sistema.
+ * Contiene información básica del usuario obtenida de Supabase.
  */
 export interface UserProfile {
+  /** ID único del usuario */
   id: string
+  /** Nombre completo del usuario */
   full_name: string
+  /** Correo electrónico del usuario */
   email: string
+  /** Rol del usuario en el sistema (cliente, admin, etc.) */
   role: string
+  /** URL de la imagen de perfil del usuario (opcional) */
   image?: string
+  /** País de residencia del usuario (opcional) */
   country?: string
+  /** Fecha de creación del perfil (opcional) */
   created_at?: string
+  /** Fecha de última actualización del perfil (opcional) */
   updated_at?: string
 }
 
 // --- Métodos de Registro e Inicio de Sesión ---
 
 /**
- * Registro con email y contraseña
+ * Registra un nuevo usuario en el sistema usando email y contraseña.
+ * Crea la cuenta en Supabase Auth y almacena metadatos adicionales.
+ *
+ * @param {string} email - Correo electrónico del usuario
+ * @param {string} password - Contraseña del usuario
+ * @param {object} metadata - Metadatos adicionales del usuario
+ * @param {string} metadata.full_name - Nombre completo del usuario
+ * @param {string} [metadata.country] - País de residencia (opcional)
+ * @param {string} [metadata.role='cliente'] - Rol del usuario (opcional, por defecto 'cliente')
+ * @returns {Promise<{data: any, error: any}>} Resultado del registro
+ * @throws {Error} Si el email ya está registrado o hay un error en el registro
  */
 export async function signupWithEmail(
   email: string,
@@ -59,8 +87,13 @@ export async function signupWithEmail(
 }
 
 /**
- * Login con email y contraseña
- * Guarda la sesión en Redis con TTL
+ * Inicia sesión de un usuario usando email y contraseña.
+ * Valida las credenciales con Supabase y guarda la sesión en Redis con TTL.
+ *
+ * @param {string} email - Correo electrónico del usuario
+ * @param {string} password - Contraseña del usuario
+ * @returns {Promise<{user: any, session: any}>} Usuario y sesión de Supabase
+ * @throws {Error} Si las credenciales son inválidas o hay error en el login
  */
 export async function loginWithEmail(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -280,7 +313,13 @@ export const clearSessionCookie = (): string => {
 // --- Métodos de Gestión de Perfil ---
 
 /**
- * Obtener perfil desde la tabla profiles
+ * Obtiene el perfil completo de un usuario desde la base de datos.
+ * Incluye información básica del usuario y metadatos adicionales.
+ *
+ * @param {string} userId - ID único del usuario
+ * @param {string} [accessToken] - Token de acceso opcional para autenticación
+ * @returns {Promise<UserProfile>} Perfil del usuario con todos sus datos
+ * @throws {Error} Si el usuario no existe o hay error en la consulta
  */
 export async function getUserById(userId: string, accessToken?: string): Promise<UserProfile> {
   let client = supabase
