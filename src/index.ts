@@ -3,7 +3,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { pino } from 'pino'
 import { API_URL, LOG_LEVEL, PORT } from './config/env.js'
 import { authMiddleware, optionalAuthMiddleware } from './middlewares/index.js'
-import { authRoutes, cartRoutes, healthRoutes, orderRoutes, productRoutes } from './routes/index.js'
+import { authRoutes, cartRoutes, healthRoutes, orderRoutes, productRoutes, profileRoutes } from './routes/index.js'
 
 // Importar métricas centralizadas
 import {
@@ -105,6 +105,7 @@ app.use('/products/*', optionalAuthMiddleware)
 
 app.route('/health', healthRoutes)
 app.route('/auth', authRoutes)
+app.route('/profile', profileRoutes)
 app.route('/products', productRoutes)
 app.route('/cart', cartRoutes)
 app.route('/orders', orderRoutes)

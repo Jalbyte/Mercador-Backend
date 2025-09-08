@@ -1,8 +1,10 @@
-import type { Session } from '@supabase/supabase-js'
+import type { Factor, Session } from '@supabase/supabase-js'
 import { createClient } from '@supabase/supabase-js'
 import { APP_REDIRECT_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/env.js'
-import { supabase } from '../config/supabase.js'
+import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { redisService } from '../services/redis.service.js'
+import { Context } from 'hono'
+import { issueCsrfCookie } from '../middlewares/csrf.js'
 
 /**
  * Tipo de perfil de usuario
@@ -12,6 +14,7 @@ export interface UserProfile {
   full_name: string
   email: string
   role: string
+  image?: string
   country?: string
   created_at?: string
   updated_at?: string
@@ -162,6 +165,118 @@ export async function refreshSession(refreshToken: string) {
   return data.session
 }
 
+
+
+export const createSupabaseClient = (accessToken: string) => {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false
+    }
+  })
+}
+
+
+// --- MFA helpers ---
+export type AuthError = { message: string }
+
+export type AuthMFAEnrollTOTPResponse =
+  | {
+    data: {
+      id: string
+      type: 'totp'
+      totp: {
+        qr_code: string
+        secret: string
+        uri: string
+      }
+      friendly_name?: string
+    }
+    error: null
+  }
+  | {
+    data: null
+    error: AuthError
+  }
+
+export async function enrollMfa(accessToken: string): Promise<AuthMFAEnrollTOTPResponse> {
+  const client = createSupabaseClient(accessToken)
+
+  try {
+    // Enroll un nuevo factor TOTP
+
+
+    
+    // 🔍 Listar todos los factores para este usuario
+    const { data: factorsData, error: listError } = await client.auth.mfa.listFactors()
+    if (listError) {
+      return { data: null, error: listError }
+    } else {
+      const unverified = factorsData?.all?.filter(
+        (f: Factor) => f.status !== "verified")
+
+      for (const factor of unverified) {
+        await client.auth.mfa.unenroll({ factorId: factor.id })
+      }
+    }
+
+    
+    const { data, error } = await client.auth.mfa.enroll({ factorType: 'totp' })
+
+    if (error) {
+      return { data: null, error }
+    }
+
+
+    return { data: data as any, error: null }
+  } catch (err: any) {
+    return { data: null, error: { message: err?.message ?? String(err) } }
+  }
+}
+
+// --- Cookie helpers exported for use in routes ---
+export function clearCookie(name: string, path = '/') {
+  const isProduction = process.env.NODE_ENV === 'production'
+  return [
+    `${name}=;`,
+    `HttpOnly`,
+    `Path=${path}`,
+    `Max-Age=0`,
+    isProduction ? 'Secure' : '',
+    `SameSite=Lax`
+  ].filter(Boolean).join('; ')
+}
+
+export const clearSessionCookie = (): string => {
+  const isProduction = process.env.NODE_ENV === 'production'
+  const accessCookie = [
+    `sb_access_token=;`,
+    `HttpOnly`,
+    `Path=/`,
+    `Max-Age=0`,
+    isProduction ? 'Secure' : '',
+    `SameSite=Lax`
+  ].filter(Boolean).join('; ')
+
+  const refreshCookie = [
+    `sb_refresh_token=;`,
+    `HttpOnly`,
+    `Path=/auth`,
+    `Max-Age=0`,
+    isProduction ? 'Secure' : '',
+    `SameSite=Lax`
+  ].filter(Boolean).join('; ')
+
+  const csrf = issueCsrfCookie()
+  return [accessCookie, refreshCookie, csrf].join(', ')
+}
+
+
+
 // --- Métodos de Gestión de Perfil ---
 
 /**
@@ -181,7 +296,7 @@ export async function getUserById(userId: string, accessToken?: string): Promise
 
   const { data: profile, error } = await client
     .from('profiles')
-    .select('id, email, full_name, role, created_at, updated_at')
+    .select('id, email, full_name, role, image, created_at, updated_at')
     .eq('id', userId)
     .single()
 
@@ -226,6 +341,111 @@ export async function updateUser(
   if (!user) throw new Error('Update failed: user not found')
 
   return user as UserProfile
+}
+
+/**
+ * Actualizar el perfil de usuario, incluyendo la subida de avatar
+ * Opcionalmente recibe un accessToken para usar un cliente autenticado
+ */
+export async function updateUserProfile(
+  userId: string,
+  profileData: Partial<{ full_name?: string; country?: string; image_file?: any }>,
+  accessToken?: string
+) {
+  // Cliente para operaciones en tablas (autenticado si hay token)
+  let client = supabase
+  if (accessToken) {
+    client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    })
+  }
+
+  const { full_name, country, image_file } = profileData
+  const updatePayload: { [key: string]: any } = {}
+
+  if (full_name) updatePayload.full_name = full_name
+  if (country) updatePayload.country = country
+
+  // Subida de avatar (similar a lógica de productos: soporta File/Buffer o data URL)
+  try {
+    if (image_file) {
+      // Caso data URL (string base64)
+      if (typeof image_file === 'string' && image_file.startsWith('data:')) {
+        const match = image_file.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/)
+        if (match) {
+          const mime = match[1]
+          const b64 = match[2]
+          const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1] || 'png'
+          const buffer = Buffer.from(b64, 'base64')
+          const fileName = `avatars/${userId}/${Date.now()}.${ext}`
+          const primary = supabaseAdmin ?? client
+          const { error: uploadError } = await primary.storage
+            .from('images')
+            .upload(fileName, buffer, { cacheControl: '3600', upsert: true })
+          if (uploadError) throw uploadError
+          const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
+          const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
+          updatePayload.image = publicUrl
+        }
+      } else if (image_file?.size > 0 || image_file instanceof Buffer) {
+        // Caso File / Buffer (Node o navegador)
+        const namePart = typeof (image_file as any).name === 'string' ? (image_file as any).name : 'avatar.png'
+        const ext = namePart.includes('.') ? namePart.split('.').pop() : 'png'
+        const fileName = `avatars/${userId}/${Date.now()}.${ext}`
+        const storageClient = accessToken ? client : (supabaseAdmin ?? client)
+        const body = image_file instanceof Buffer ? image_file : image_file
+        const { error: uploadError } = await storageClient.storage
+          .from('images')
+          .upload(fileName, body, { cacheControl: '3600', upsert: true })
+        if (uploadError) throw uploadError
+        const publicUrlResult: any = storageClient.storage.from('images').getPublicUrl(fileName)
+        const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
+        updatePayload.image = publicUrl
+      }
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to upload avatar', err)
+    let details = ''
+    try {
+      if (err instanceof Error) details = err.message || String(err)
+      else details = JSON.stringify(err)
+    } catch {
+      details = String(err)
+    }
+    throw new Error(`Failed to upload avatar: ${details}`)
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    const { data: existingProfile, error } = await client
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    if (error) throw new Error(`Failed to fetch profile: ${error.message}`)
+    return existingProfile
+  }
+
+  const primary = supabaseAdmin ?? client
+  try {
+    const { data, error } = await primary
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', userId)
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  } catch (err) {
+    let details = ''
+    try {
+      if (err instanceof Error) details = err.message || String(err)
+      else details = JSON.stringify(err)
+    } catch { details = String(err) }
+    // eslint-disable-next-line no-console
+    console.error('Failed to update profile', { userId, details })
+    throw new Error(`Failed to update profile: ${details}`)
+  }
 }
 
 // --- Métodos de Manejo de Sesión ---
@@ -318,4 +538,26 @@ export function onAuthStateChange(
 export async function getUserByAccessToken(access_token: string) {
   const { data, error } = await supabase.auth.getUser(access_token)
   return { data, error }
+}
+
+
+export const verifyMFA = async (
+  accessToken: string,
+  factorId: string,
+  code: string
+) => {
+  const client = createSupabaseClient(accessToken)
+
+  // Paso 1: crear challenge
+  const { data: challenge, error: challengeError } = await client.auth.mfa.challenge({ factorId })
+  if (challengeError) return { data: null, error: challengeError }
+
+  // Paso 2: verificar challenge con el código TOTP
+  const { data: verified, error: verifyError } = await client.auth.mfa.verify({
+    factorId,
+    challengeId: challenge.id,
+    code,
+  })
+
+  return { data: verified, error: verifyError }
 }

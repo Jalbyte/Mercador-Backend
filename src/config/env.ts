@@ -32,7 +32,7 @@ export const envSchema = z.object({
   APP_REDIRECT_URL: z.url().optional(),
   POST_LOGOUT_REDIRECT_URL: z.url().optional(),
   BUCKET_ACCESS_ID: z.string().min(1).optional(),
-  BUCKET_ACCESS_KEY_KEY: z.string().min(1).optional(),
+  BUCKET_ACCESS_KEY: z.string().min(1).optional(),
   CSRF_COOKIE: z.string().default('csrf_token'),
   // Refresh token ttl in days (used for Redis + cookie Max-Age)
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(7),
@@ -51,6 +51,7 @@ export const {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   BUCKET_ACCESS_ID,
+  BUCKET_ACCESS_KEY,
   SUPABASE_SERVICE_ROLE_KEY,
   UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN,

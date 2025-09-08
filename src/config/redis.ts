@@ -20,6 +20,28 @@ let mode: 'tcp' | 'rest' | null = null
 export async function initRedis(logger: pino.Logger) {
   if (redisClient) return redisClient
 
+  // In development, skip external Redis and use a lightweight in-memory stub
+  if (process.env.NODE_ENV === 'development') {
+    logger.info('🧪 NODE_ENV=development — using in-memory Redis stub (no external connection)')
+    const store = new Map<string, string>()
+    const stub = {
+      // tcp-style methods
+      set: async (k: string, v: string, opts?: any) => {
+        store.set(k, v)
+        return 'OK'
+      },
+      get: async (k: string) => store.get(k) ?? null,
+      del: async (k: string) => (store.delete(k) ? 1 : 0),
+      exists: async (k: string) => (store.has(k) ? 1 : 0),
+      quit: async () => {},
+      // rest client compatibility (Upstash)
+      // keep method names compatible: set(key, value) or set(key, value, { ex })
+    }
+    redisClient = stub
+    // mode remains null to indicate no external Redis mode
+    return redisClient
+  }
+
   // --- 1. Upstash REST ---
   if (UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN) {
     logger.info('🔗 Using Upstash Redis via REST')

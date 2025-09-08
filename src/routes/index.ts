@@ -3,6 +3,7 @@ import authRoutes from './auth.js'
 import productRoutes from './products.js'
 import cartRoutes from './cart.js'
 import orderRoutes from './orders.js'
+import profileRoutes from './profile.js'
 
 // Export all route modules
 export {
@@ -10,5 +11,6 @@ export {
   authRoutes,
   productRoutes,
   cartRoutes,
-  orderRoutes
+  orderRoutes,
+  profileRoutes
 }

@@ -1,19 +1,136 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as productService from '../services/product.service.js'
+import * as productKeyService from '../services/product_key.service.js'
+import  {BUCKET_ACCESS_ID,BUCKET_ACCESS_KEY} from '../config/env.js'
 
 const productRoutes = new OpenAPIHono()
 
 // Schemas
+const ProductKey = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  license_key: z.string(),
+  user_id: z.string().uuid().optional(),
+  status: z.string().optional(),
+  expiration_date: z.string().optional(),
+  activation_limit: z.number().int().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional()
+})
+
+const CreateProductKeyData = z.object({
+  product_id: z.string(),
+  license_key: z.string(),
+  user_id: z.uuid().optional(),
+  status: z.string().optional(),
+  expiration_date: z.string().optional(),
+  activation_limit: z.number().int().optional()
+})
+// Product Key Endpoints
+const listProductKeysRoute = createRoute({
+  method: 'get',
+  path: '/:productId/keys',
+  request: {
+    params: z.object({ productId: z.string() })
+  },
+  responses: {
+    200: {
+      description: 'List of product keys',
+      content: {
+        'application/json': {
+          schema: z.object({ success: z.boolean(), data: z.array(ProductKey) })
+        }
+      }
+    },
+    500: { description: 'Failed to fetch product keys' }
+  }
+})
+
+productRoutes.openapi(listProductKeysRoute, async (c) => {
+  try {
+    const { productId } = c.req.valid('param')
+    const keys = await productKeyService.listProductKeys(productId)
+    return c.json({ success: true, data: keys })
+  } catch (error) {
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to fetch product keys' }, 500)
+  }
+})
+
+const createProductKeyRoute = createRoute({
+  method: 'post',
+  path: '/:productId/keys',
+  request: {
+    params: z.object({ productId: z.string() }),
+    body: {
+      content: {
+        'application/json': { schema: CreateProductKeyData }
+      },
+      required: true
+    }
+  },
+  responses: {
+    201: {
+      description: 'Product key created',
+      content: {
+        'application/json': {
+          schema: z.object({ success: z.boolean(), data: ProductKey })
+        }
+      }
+    },
+    400: { description: 'Failed to create product key' }
+  }
+})
+
+productRoutes.openapi(createProductKeyRoute, async (c) => {
+  try {
+    const { productId } = c.req.valid('param')
+    const keyData = c.req.valid('json')
+    const key = await productKeyService.createProductKey({ ...keyData, product_id: productId })
+    return c.json({ success: true, data: key }, 201)
+  } catch (error) {
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to create product key' }, 400)
+  }
+})
+
+const deleteProductKeyRoute = createRoute({
+  method: 'delete',
+  path: '/:productId/keys/:keyId',
+  request: {
+    params: z.object({ productId: z.string(), keyId: z.string() })
+  },
+  responses: {
+    200: {
+      description: 'Product key deleted',
+      content: {
+        'application/json': {
+          schema: z.object({ success: z.boolean(), message: z.string() })
+        }
+      }
+    },
+    500: { description: 'Failed to delete product key' }
+  }
+})
+
+productRoutes.openapi(deleteProductKeyRoute, async (c) => {
+  try {
+    const { keyId } = c.req.valid('param')
+    await productKeyService.deleteProductKey(keyId)
+    return c.json({ success: true, message: 'Product key deleted successfully' })
+  } catch (error) {
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to delete product key' }, 500)
+  }
+})
 const Product = z.object({
-  id: z.string().uuid(),
+  id: z.string(),
   name: z.string(),
   description: z.string(),
   price: z.number().positive(),
   category: z.string(),
-  image_url: z.string().url().optional(),
+  imagen: z.string().url().optional(),
   stock_quantity: z.number().int().min(0),
   created_at: z.string(),
-  updated_at: z.string()
+  updated_at: z.string(),
+  product_keys: z.array(ProductKey).optional()
 })
 
 const CreateProductData = z.object({
@@ -21,8 +138,11 @@ const CreateProductData = z.object({
   description: z.string().min(1),
   price: z.number().positive(),
   category: z.string().min(1),
-  image_url: z.string().url().optional(),
+  imagen: z.string().url().optional(),
   stock_quantity: z.number().int().min(0)
+  // allow creating product with keys
+}).extend({
+  product_keys: z.array(CreateProductKeyData).optional()
 })
 
 const UpdateProductData = CreateProductData.partial()
@@ -120,7 +240,7 @@ const getProductRoute = createRoute({
   path: '/:id',
   request: {
     params: z.object({
-      id: z.string().uuid()
+      id: z.string()
     })
   },
   responses: {
@@ -145,7 +265,7 @@ productRoutes.openapi(getProductRoute, async (c) => {
   try {
   const { id } = c.req.valid('param')
 
-    const product = await productService.getProductById(id)
+  const product = await productService.getProductWithKeys(id)
 
     if (!product) {
       return c.json({
@@ -221,11 +341,11 @@ const updateProductRoute = createRoute({
   path: '/:id',
   request: {
     params: z.object({
-      id: z.string().uuid()
+      id: z.string()
     }),
     body: {
       content: {
-        'application/json': {
+        'multipart/form-data': {
           schema: UpdateProductData
         }
       },
@@ -250,7 +370,22 @@ const updateProductRoute = createRoute({
 productRoutes.openapi(updateProductRoute, async (c) => {
   try {
   const { id } = c.req.valid('param')
-  const updateData = c.req.valid('json')
+  const body = await c.req.parseBody()
+
+    const updateData: { [key: string]: any } = {}
+    for (const key in body) {
+      if (body[key] !== undefined) {
+        updateData[key] = body[key]
+      }
+    }
+
+    // Hono parsea los números como strings, hay que convertirlos
+    if (updateData.price) {
+      updateData.price = parseFloat(updateData.price)
+    }
+    if (updateData.stock_quantity) {
+      updateData.stock_quantity = parseInt(updateData.stock_quantity, 10)
+    }
 
     const product = await productService.updateProduct(id, updateData)
 
@@ -273,7 +408,7 @@ const deleteProductRoute = createRoute({
   path: '/:id',
   request: {
     params: z.object({
-      id: z.string().uuid()
+      id: z.string()
     })
   },
   responses: {
