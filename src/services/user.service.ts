@@ -30,8 +30,12 @@ export interface UserProfile {
   role: string
   /** URL de la imagen de perfil del usuario (opcional) */
   image?: string
+  /** URL alternativa del avatar (alias de image) */
+  avatar_url?: string
   /** País de residencia del usuario (opcional) */
-  country?: string
+  country?: string,
+  /** Indica si el usuario tiene autenticación de dos factores habilitada */
+  two_factor_enabled?: boolean
   /** Fecha de creación del perfil (opcional) */
   created_at?: string
   /** Fecha de última actualización del perfil (opcional) */
@@ -47,7 +51,7 @@ export interface UserProfile {
  * @param {string} email - Correo electrónico del usuario
  * @param {string} password - Contraseña del usuario
  * @param {object} metadata - Metadatos adicionales del usuario
- * @param {string} metadata.full_name - Nombre completo del usuario
+ * @param {string} [metadata.full_name] - Nombre completo del usuario
  * @param {string} [metadata.country] - País de residencia (opcional)
  * @param {string} [metadata.role='cliente'] - Rol del usuario (opcional, por defecto 'cliente')
  * @returns {Promise<{data: any, error: any}>} Resultado del registro
@@ -57,7 +61,7 @@ export async function signupWithEmail(
   email: string,
   password: string,
   metadata: {
-    full_name: string
+    full_name?: string
     country?: string
     role?: string
   }
@@ -67,7 +71,7 @@ export async function signupWithEmail(
     password,
     options: {
       data: {
-        full_name: metadata.full_name,
+        full_name: metadata.full_name ?? email.split('@')[0],
         country: metadata.country ?? null,
         role: metadata.role ?? 'cliente',
       },
@@ -89,10 +93,11 @@ export async function signupWithEmail(
 /**
  * Inicia sesión de un usuario usando email y contraseña.
  * Valida las credenciales con Supabase y guarda la sesión en Redis con TTL.
+ * Si el usuario tiene MFA habilitado, devuelve un estado especial sin completar la sesión.
  *
  * @param {string} email - Correo electrónico del usuario
  * @param {string} password - Contraseña del usuario
- * @returns {Promise<{user: any, session: any}>} Usuario y sesión de Supabase
+ * @returns {Promise<{user: any, session: any, mfaRequired?: boolean, factorId?: string}>} Usuario y sesión de Supabase
  * @throws {Error} Si las credenciales son inválidas o hay error en el login
  */
 export async function loginWithEmail(email: string, password: string) {
@@ -107,15 +112,68 @@ export async function loginWithEmail(email: string, password: string) {
 
   const { access_token, refresh_token, expires_in, user } = data.session
 
-  // Guardar sesión en Redis con TTL
+  // Verificar si el usuario tiene MFA habilitado
+  const client = createSupabaseClient(access_token)
+  const { data: aalData } = await client.auth.mfa.getAuthenticatorAssuranceLevel()
+  
+  // Verificar si tiene factores MFA verificados
+  const { data: factorsData } = await client.auth.mfa.listFactors()
+  const verifiedFactors = factorsData?.all?.filter((f: Factor) => f.status === 'verified') || []
+  
+
+  // Obtener información adicional del perfil
+  let enrichedUser: any = { ...data.user }
+  try {
+    const { data: profile } = await client
+      .from('profiles')
+      .select('image, country')
+      .eq('id', user.id)
+      .single()
+
+    if (profile) {
+      enrichedUser = {
+        ...enrichedUser,
+        image: profile.image || null,
+        avatar_url: profile.image || null,
+        country: profile.country || null,
+        two_factor_enabled: verifiedFactors.length > 0 && verifiedFactors[0].status === 'verified',
+      }
+    }
+  } catch (err) {
+    // Ignorar errores al obtener el perfil adicional
+    console.error('Error fetching profile during login:', err)
+  }
+
+  // Si tiene MFA verificado pero el nivel actual es AAL1, requiere verificación adicional
+    if (verifiedFactors.length > 0 && (aalData?.currentLevel === 'aal1' || aalData?.currentLevel === null)) {
+    // No guardar la sesión completa en Redis aún
+    // Guardar una sesión temporal con prefijo "mfa_pending:"
+    await redisService.set(`mfa_pending:${access_token}`, user.id, 300) // 5 minutos para completar MFA
+
+    return {
+      user: enrichedUser,
+      session: {
+        ...data.session,
+        user: enrichedUser,
+      },
+      mfaRequired: true,
+      factorId: verifiedFactors[0].id,
+    }
+  }
+
+  // Login completo sin MFA o MFA ya verificado
   await redisService.set(`session:${access_token}`, user.id, expires_in)
   // Guardar refresh token en Redis para validación y rotación (TTL en días)
   const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
   await redisService.set(`refresh:${refresh_token}`, user.id, refreshTtlSeconds)
 
   return {
-    user: data.user,
-    session: data.session,
+    user: enrichedUser,
+    session: {
+      ...data.session,
+      user: enrichedUser,
+    },
+    mfaRequired: false,
   }
 }
 
@@ -335,13 +393,28 @@ export async function getUserById(userId: string, accessToken?: string): Promise
 
   const { data: profile, error } = await client
     .from('profiles')
-    .select('id, email, full_name, role, image, created_at, updated_at')
+    .select('id, email, full_name, role, image, country, created_at, updated_at')
     .eq('id', userId)
     .single()
 
-  if (error || !profile) throw new Error('User not found')
+  if (error || !profile) throw new Error(JSON.stringify(error) || 'User not found')
 
-  return profile as UserProfile
+  // Verificar si tiene MFA habilitado
+  let two_factor_enabled = false
+  if (accessToken) {
+    try {
+      const { data: factorsData } = await client.auth.mfa.listFactors()
+      two_factor_enabled = factorsData?.all?.[0]?.status === 'verified'
+    } catch (err) {
+      // Ignorar errores al obtener factores MFA
+    }
+  }
+
+  return {
+    ...profile,
+    avatar_url: profile.image,
+    two_factor_enabled,
+  } as UserProfile
 }
 
 /**
@@ -351,7 +424,6 @@ export async function updateUser(
   userId: string,
   updateData: Partial<{
     full_name: string
-    phone: string
     address: string
     city: string
     country: string
@@ -573,10 +645,46 @@ export function onAuthStateChange(
 
 /**
  * Obtener usuario a partir de un access_token (usado por el callback OAuth)
+ * Incluye información adicional del perfil (imagen, país) y estado de MFA
  */
 export async function getUserByAccessToken(access_token: string) {
-  const { data, error } = await supabase.auth.getUser(access_token)
-  return { data, error }
+  const client = createSupabaseClient(access_token)
+  const { data: authData, error } = await client.auth.getUser()
+  
+  if (error || !authData?.user) {
+    return { data: authData, error }
+  }
+
+  try {
+    // Obtener información adicional del perfil
+    const { data: profile } = await client
+      .from('profiles')
+      .select('image, country')
+      .eq('id', authData.user.id)
+      .single()
+
+    // Verificar si tiene MFA habilitado
+    const { data: factorsData } = await client.auth.mfa.listFactors()
+    const hasVerifiedMFA = factorsData?.all?.[0]?.status === 'verified'
+
+    // Enriquecer el objeto user con la información adicional
+    const enrichedUser = {
+      ...authData.user,
+      image: profile?.image || null,
+      avatar_url: profile?.image || null,
+      country: profile?.country || null,
+      two_factor_enabled: hasVerifiedMFA,
+    }
+
+    return {
+      data: { user: enrichedUser },
+      error: null,
+    }
+  } catch (err) {
+    // Si falla la consulta adicional, retornar solo los datos de auth
+    console.error('Error fetching additional user data:', err)
+    return { data: authData, error: null }
+  }
 }
 
 
@@ -599,4 +707,72 @@ export const verifyMFA = async (
   })
 
   return { data: verified, error: verifyError }
+}
+
+/**
+ * Unenroll (eliminar) un factor MFA del usuario
+ */
+export const unenrollMFA = async (accessToken: string, factorId: string) => {
+  const client = createSupabaseClient(accessToken)
+
+  const { data, error } = await client.auth.mfa.unenroll({ factorId })
+  if (error) return { data: null, error }
+
+  return { data, error: null }
+}
+
+/**
+ * Listar todos los factores MFA del usuario
+ */
+export const listMFAFactors = async (accessToken: string) => {
+  const client = createSupabaseClient(accessToken)
+
+  const { data, error } = await client.auth.mfa.listFactors()
+  if (error) return { data: null, error }
+
+  return { data, error: null }
+}
+
+/**
+ * Obtener el nivel de autenticación del usuario (AAL1 o AAL2)
+ * AAL2 significa que el usuario completó MFA
+ */
+export const getAuthenticatorAssuranceLevel = async (accessToken: string) => {
+  const client = createSupabaseClient(accessToken)
+
+  const { data, error } = await client.auth.mfa.getAuthenticatorAssuranceLevel()
+  if (error) return { data: null, error }
+
+  return { data, error: null }
+}
+
+/**
+ * Completar el login después de verificar MFA
+ * Mueve la sesión de "mfa_pending" a "session" en Redis
+ */
+export const completeMFALogin = async (newAccessToken: string, refreshToken: string, userId: string, expiresIn: number, originalTempToken: string) => {
+  // TEMPORAL: Skip Redis verification in development
+  if (process.env.NODE_ENV === 'development') {
+    // Solo guardar la nueva sesión, skip verificación pendiente
+    await redisService.set(`session:${newAccessToken}`, userId, expiresIn)
+    
+    const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
+    await redisService.set(`refresh:${refreshToken}`, userId, refreshTtlSeconds)
+    
+    return { success: true }
+  }
+
+  // Código original para producción
+  const pendingExists = await redisService.exists(`mfa_pending:${originalTempToken}`)
+  if (!pendingExists) {
+    throw new Error('No pending MFA session found or session expired')
+  }
+
+  await redisService.del(`mfa_pending:${originalTempToken}`)
+  await redisService.set(`session:${newAccessToken}`, userId, expiresIn)
+  
+  const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
+  await redisService.set(`refresh:${refreshToken}`, userId, refreshTtlSeconds)
+
+  return { success: true }
 }

@@ -40,7 +40,7 @@ const cartRoutes = new OpenAPIHono()
 
 // Schemas
 const ProductSummary = z.object({
-  id: z.string().uuid(),
+  id: z.string(),
   name: z.string(),
   price: z.number().positive(),
   image_url: z.string().url().optional()
@@ -49,7 +49,7 @@ const ProductSummary = z.object({
 const CartItem = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
-  product_id: z.string().uuid(),
+  productId: z.number(),
   quantity: z.number().int().min(1),
   created_at: z.string(),
   updated_at: z.string(),
@@ -63,7 +63,7 @@ const Cart = z.object({
 })
 
 const AddToCartData = z.object({
-  productId: z.string().uuid(),
+  productId: z.number(),
   quantity: z.number().int().min(1)
 })
 
@@ -186,7 +186,7 @@ cartRoutes.openapi(addToCartRoute, async (c) => {
       }, 401)
     }
 
-    const cartItem = await cartService.addToCart(userId, productId, quantity)
+    const cartItem = await cartService.addToCart(userId, Number(productId), quantity)
 
     return c.json({
       success: true,

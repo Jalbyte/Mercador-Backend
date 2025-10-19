@@ -37,7 +37,6 @@ import { supabase } from '../config/supabase.js'
 
 export interface CartItem {
   id: string
-  user_id: string
   product_id: string
   quantity: number
   created_at: string
@@ -57,6 +56,22 @@ export interface Cart {
 }
 
 export async function getUserCart(userId: string): Promise<Cart> {
+  // Primero obtener el cart del usuario
+  const { data: userCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError) {
+    // Si no existe un cart para el usuario, devolver cart vacío
+    if (cartError.code === 'PGRST116') {
+      return { items: [], total: 0, itemCount: 0 }
+    }
+    throw new Error(`Failed to fetch cart: ${cartError.message}`)
+  }
+
+  // Ahora obtener los items del cart
   const { data: cartItems, error } = await supabase
     .from('cart_items')
     .select(`
@@ -68,10 +83,10 @@ export async function getUserCart(userId: string): Promise<Cart> {
         image_url
       )
     `)
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (error) {
-    throw new Error(`Failed to fetch cart: ${error.message}`)
+    throw new Error(`Failed to fetch cart items: ${error.message}`)
   }
 
   const items = cartItems || []
@@ -87,12 +102,42 @@ export async function getUserCart(userId: string): Promise<Cart> {
   }
 }
 
-export async function addToCart(userId: string, productId: string, quantity: number): Promise<CartItem> {
+export async function addToCart(userId: string, productId: number, quantity: number): Promise<CartItem> {
+  // Primero obtener o crear el cart del usuario
+  let userCart = null
+
+  const { data: existingCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError && cartError.code !== 'PGRST116') {
+    throw new Error(`Failed to fetch user cart: ${cartError.message}`)
+  }
+
+  if (!existingCart) {
+    // Crear un nuevo cart para el usuario
+    const { data: newCart, error: createCartError } = await supabase
+      .from('carts')
+      .insert({ user_id: userId })
+      .select('id')
+      .single()
+
+    if (createCartError) {
+      throw new Error(`Failed to create user cart: ${createCartError.message}`)
+    }
+
+    userCart = newCart
+  } else {
+    userCart = existingCart
+  }
+
   // Check if item already exists in cart
   const { data: existingItem } = await supabase
     .from('cart_items')
     .select('*')
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
     .eq('product_id', productId)
     .single()
 
@@ -127,7 +172,7 @@ export async function addToCart(userId: string, productId: string, quantity: num
     const { data: newItem, error } = await supabase
       .from('cart_items')
       .insert({
-        user_id: userId,
+        cart_id: userCart.id,
         product_id: productId,
         quantity,
         created_at: new Date().toISOString(),
@@ -153,6 +198,17 @@ export async function addToCart(userId: string, productId: string, quantity: num
 }
 
 export async function updateCartItem(userId: string, itemId: string, quantity: number): Promise<CartItem> {
+  // Primero obtener el cart del usuario
+  const { data: userCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError) {
+    throw new Error(`Failed to fetch user cart: ${cartError.message}`)
+  }
+
   const { data: updatedItem, error } = await supabase
     .from('cart_items')
     .update({
@@ -160,7 +216,7 @@ export async function updateCartItem(userId: string, itemId: string, quantity: n
       updated_at: new Date().toISOString()
     })
     .eq('id', itemId)
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
     .select(`
       *,
       product:products (
@@ -180,11 +236,22 @@ export async function updateCartItem(userId: string, itemId: string, quantity: n
 }
 
 export async function removeFromCart(userId: string, itemId: string): Promise<void> {
+  // Primero obtener el cart del usuario
+  const { data: userCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError) {
+    throw new Error(`Failed to fetch user cart: ${cartError.message}`)
+  }
+
   const { error } = await supabase
     .from('cart_items')
     .delete()
     .eq('id', itemId)
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (error) {
     throw new Error(`Failed to remove item from cart: ${error.message}`)
@@ -192,10 +259,25 @@ export async function removeFromCart(userId: string, itemId: string): Promise<vo
 }
 
 export async function clearCart(userId: string): Promise<void> {
+  // Primero obtener el cart del usuario
+  const { data: userCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError) {
+    // Si no hay cart, no hay nada que limpiar
+    if (cartError.code === 'PGRST116') {
+      return
+    }
+    throw new Error(`Failed to fetch user cart: ${cartError.message}`)
+  }
+
   const { error } = await supabase
     .from('cart_items')
     .delete()
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (error) {
     throw new Error(`Failed to clear cart: ${error.message}`)
@@ -203,10 +285,25 @@ export async function clearCart(userId: string): Promise<void> {
 }
 
 export async function getCartItemCount(userId: string): Promise<number> {
+  // Primero obtener el cart del usuario
+  const { data: userCart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartError) {
+    // Si no hay cart, el count es 0
+    if (cartError.code === 'PGRST116') {
+      return 0
+    }
+    throw new Error(`Failed to fetch user cart: ${cartError.message}`)
+  }
+
   const { count, error } = await supabase
     .from('cart_items')
     .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (error) {
     throw new Error(`Failed to get cart item count: ${error.message}`)

@@ -1,14 +1,15 @@
-import { createClient } from 'redis'
 import { Redis as UpstashRedis } from '@upstash/redis'
-import { pino } from 'pino'
+import pino from 'pino'
+import { createClient } from 'redis'
 import {
+  NODE_ENV,
   REDIS_HOST,
   REDIS_PASSWORD,
   REDIS_PORT,
   REDIS_TOKEN,
   REDIS_URL,
-  UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN,
+  UPSTASH_REDIS_REST_URL,
 } from './env.js'
 
 /**
@@ -50,7 +51,7 @@ export async function initRedis(logger: pino.Logger) {
   if (redisClient) return redisClient
 
   // In development, skip external Redis and use a lightweight in-memory stub
-  if (process.env.NODE_ENV === 'development') {
+  if (NODE_ENV === 'development') {
     logger.info('🧪 NODE_ENV=development — using in-memory Redis stub (no external connection)')
     const store = new Map<string, string>()
     const stub = {

@@ -61,8 +61,13 @@ export interface Product {
   category: string
   image_url?: string
   stock_quantity: number
+  license_type?: string
   created_at: string
   updated_at: string
+  license_category?: {
+    id: string
+    type: string
+  }
 }
 
 export interface CreateProductData {
@@ -74,6 +79,7 @@ export interface CreateProductData {
   // Nuevo: archivo de imagen (File | Buffer) cuando se usa form-data
   image_file?: File | Buffer
   stock_quantity: number
+  license_type: string
   product_keys?: Omit<CreateProductKeyData, 'product_id'>[] // Opcional: claves a crear junto con el producto
 }
 
@@ -87,9 +93,11 @@ export interface ProductFilters {
 export async function listProducts(filters: ProductFilters = {}) {
   const { page = 1, limit = 10, category, search } = filters
 
-  let query = supabase
+  // Use admin client to bypass RLS for license_category
+  const db = supabaseAdmin ?? supabase
+  let query = db
     .from('products')
-    .select('*', { count: 'exact' })
+    .select('*, license_category(id, type)', { count: 'exact' })
 
   // Apply filters
   if (category) {
@@ -123,9 +131,11 @@ export async function listProducts(filters: ProductFilters = {}) {
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const { data: product, error } = await supabase
+  // Use admin client to bypass RLS for license_category
+  const db = supabaseAdmin ?? supabase
+  const { data: product, error } = await db
     .from('products')
-    .select('*')
+    .select('*, license_category(id, type)')
     .eq('id', id)
     .single()
 
@@ -162,6 +172,18 @@ export async function getProductWithKeys(id: string) {
 
 
 export async function createProduct(productData: CreateProductData): Promise<Product> {
+  // Validar que el license_type existe
+  const db = supabaseAdmin ?? supabase
+  const { data: licenseType, error: licenseError } = await db
+    .from('license_category')
+    .select('id')
+    .eq('id', productData.license_type)
+    .single()
+
+  if (licenseError || !licenseType) {
+    throw new Error(`Invalid license_type: ${productData.license_type}`)
+  }
+
   // Extraer product_keys si vienen
   const { product_keys, ...productFields } = productData as any;
   // Si frontend envía una imagen como data URL (data:<mime>;base64,...), la guardamos y la subimos
@@ -175,7 +197,6 @@ export async function createProduct(productData: CreateProductData): Promise<Pro
   // Envolver la llamada a Supabase para capturar errores de fetch u otros problemas de red
   let product: any = null
   try {
-    const db = supabaseAdmin ?? supabase
     const resp = await db
       .from('products')
       .insert({
@@ -264,43 +285,56 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
   const primary = supabaseAdmin ?? supabase
   const fallback = supabaseAdmin ? supabase : supabaseAdmin
 
-  // Si viene un archivo de imagen en updateData, subirlo al storage de Supabase
-  try {
-    const maybeFile = (updateData as any)?.image_file
-    const maybeDataUrl = typeof (updateData as any)?.image_url === 'string' && (updateData as any).image_url.startsWith('data:')
-      ? (updateData as any).image_url
-      : null
 
-    // Si frontend envía image as data URL, convertir y subirlo
-    if (maybeDataUrl) {
-      const primary = supabaseAdmin ?? supabase
-      try {
-        const m = maybeDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/)
-        if (m) {
-          const mime = m[1]
-          const b64 = m[2]
-          const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1] || 'png'
-          const buffer = Buffer.from(b64, 'base64')
-          const fileName = `products/${id}/${Date.now()}.${ext}`
+  // Handle image upload if present in updateData
+  const maybeFile = (updateData as any)?.image_file
+  const maybeDataUrl = typeof (updateData as any)?.image_url === 'string' && (updateData as any).image_url.startsWith('data:')
+    ? (updateData as any).image_url
+    : null
 
-          const { data: uploadData, error: uploadError } = await primary.storage
-            .from('images')
-            .upload(fileName, buffer, { cacheControl: '3600', upsert: false })
 
-          if (uploadError) throw uploadError
+  // Si frontend envía image as data URL, convertir y subirlo
+  if (maybeDataUrl) {
+    console.log('📤 Processing data URL upload...')
+    try {
+      const m = maybeDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/)
+      if (m) {
+        const mime = m[1]
+        const b64 = m[2]
+        const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1] || 'png'
+        const buffer = Buffer.from(b64, 'base64')
+        const fileName = `products/${id}/${Date.now()}.${ext}`
 
-          const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
-          const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
-          ;(updateData as any).image_url = publicUrl
+        const { data: uploadData, error: uploadError } = await primary.storage
+          .from('images')
+          .upload(fileName, buffer, { cacheControl: '3600', upsert: false })
+
+        if (uploadError) {
+          console.error('❌ Upload error:', uploadError)
+          throw uploadError
         }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to upload image to storage (updateProduct dataURL)', err)
-        throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
 
-    if (maybeFile) {
+        const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
+        const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
+
+
+        if (!publicUrl) {
+          throw new Error('Failed to generate public URL for uploaded image')
+        }
+
+        ; (updateData as any).image_url = publicUrl
+      } else {
+        console.error('❌ Failed to parse data URL')
+        throw new Error('Invalid data URL format')
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  if (maybeFile) {
+    try {
       // Generar key/filename único
       const timestamp = Date.now()
       const extension = typeof (maybeFile as any).name === 'string'
@@ -317,31 +351,50 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
         .upload(fileName, fileBody, { cacheControl: '3600', upsert: false })
 
       if (uploadError) {
+        console.error('❌ File upload error:', uploadError)
         throw uploadError
       }
 
-  // Obtener URL pública del archivo subido
-  // Manejar distintos shapes de retorno entre versiones del SDK
-  const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
-  const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
-  ;(updateData as any).image_url = publicUrl
+
+      // Obtener URL pública del archivo subido
+      // Manejar distintos shapes de retorno entre versiones del SDK
+      const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
+      const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
+
+      console.log('🌐 Generated public URL for file:', publicUrl)
+
+      if (!publicUrl) {
+        throw new Error('Failed to generate public URL for uploaded file')
+      }
+
+      ; (updateData as any).image_url = publicUrl
+      console.log('✅ Updated image_url in updateData (file):', publicUrl)
 
       // Eliminar campo image_file para que no se intente guardar en la tabla
       delete (updateData as any).image_file
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('❌ Failed to upload file to storage', err)
+      throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
     }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('Failed to upload image to storage', err)
-    throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // Clean up updateData before database update
+  delete (updateData as any).image_file
+
+  console.log('💾 Final updateData before database update:', JSON.stringify(updateData, null, 2))
+
   async function runUpdate(dbClient: any) {
+    console.log('🔄 Running database update for product:', id)
+    const updatePayload = {
+      ...updateData,
+      updated_at: new Date().toISOString()
+    }
+    console.log('📝 Update payload:', JSON.stringify(updatePayload, null, 2))
+
     return dbClient
       .from('products')
-      .update({
-        ...updateData,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single()
@@ -395,9 +448,11 @@ export async function deleteProduct(id: string): Promise<void> {
 }
 
 export async function getProductsByCategory(category: string): Promise<Product[]> {
-  const { data: products, error } = await supabase
+  // Use admin client to bypass RLS for license_category
+  const db = supabaseAdmin ?? supabase
+  const { data: products, error } = await db
     .from('products')
-    .select('*')
+    .select('*, license_category(id, type)')
     .eq('category', category)
 
   if (error) {
@@ -405,4 +460,23 @@ export async function getProductsByCategory(category: string): Promise<Product[]
   }
 
   return products || []
+}
+
+export interface LicenseType {
+  id: string
+  type: string
+}
+
+export async function listLicenseTypes(): Promise<LicenseType[]> {
+  // Use admin client to bypass RLS for license_category
+  const db = supabaseAdmin ?? supabase
+  const { data: licenseTypes, error } = await db
+    .from('license_category')
+    .select('*')
+
+  if (error) {
+    throw new Error(`Failed to fetch license types: ${error.message}`)
+  }
+
+  return licenseTypes || []
 }

@@ -265,3 +265,96 @@ export async function getAllOrders(filters: { status?: string; page?: number; li
     total: count || 0
   }
 }
+
+/**
+ * Actualiza el estado de una orden y opcionalmente el payment_id
+ */
+export async function updateOrderStatusWithPayment(
+  orderId: string,
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled',
+  paymentId?: string
+) {
+  const updateData: any = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (paymentId) {
+    updateData.payment_id = paymentId;
+  }
+
+  const { data: order, error } = await supabase
+    .from('orders')
+    .update(updateData)
+    .eq('id', orderId)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update order: ${error.message}`);
+  }
+
+  return order;
+}
+
+
+/**
+ * Obtiene el user_id de una orden
+ */
+export async function getOrderUserId(orderId: string): Promise<string | null> {
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('user_id')
+    .eq('id', orderId)
+    .single();
+
+  if (error || !order) {
+    return null;
+  }
+
+  return order.user_id;
+}
+
+
+/**
+ * Obtiene productos por sus IDs (para Mercado Pago)
+ */
+export async function getProductsByIds(productIds: string[]) {
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('*')
+    .in('id', productIds);
+
+  if (error) {
+    throw new Error(`Failed to fetch products: ${error.message}`);
+  }
+
+  return products || [];
+}
+
+/**
+ * Verifica el stock de productos antes de crear una orden
+ */
+export async function verifyProductsStock(
+  items: Array<{ product_id: string; quantity: number }>
+): Promise<{ valid: boolean; message?: string }> {
+  const productIds = items.map(item => item.product_id);
+  const products = await getProductsByIds(productIds);
+
+  for (const item of items) {
+    const product = products.find(p => p.id === item.product_id);
+    
+    if (!product) {
+      return { valid: false, message: `Producto ${item.product_id} no encontrado` };
+    }
+    
+    if (product.stock_quantity < item.quantity) {
+      return { 
+        valid: false, 
+        message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock_quantity}` 
+      };
+    }
+  }
+  
+  return { valid: true };
+}

@@ -40,11 +40,15 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as productService from '../services/product.service.js'
 import * as productKeyService from '../services/product_key.service.js'
-import  {BUCKET_ACCESS_ID,BUCKET_ACCESS_KEY} from '../config/env.js'
 
 const productRoutes = new OpenAPIHono()
 
 // Schemas
+const LicenseType = z.object({
+  id: z.string(),
+  type: z.string()
+})
+
 const ProductKey = z.object({
   id: z.string(),
   product_id: z.string(),
@@ -167,11 +171,13 @@ const Product = z.object({
   description: z.string(),
   price: z.number().positive(),
   category: z.string(),
-  imagen: z.string().url().optional(),
+  image_url: z.string().url().optional(),
   stock_quantity: z.number().int().min(0),
+  license_type: z.string().optional(),
   created_at: z.string(),
   updated_at: z.string(),
-  product_keys: z.array(ProductKey).optional()
+  product_keys: z.array(ProductKey).optional(),
+  license_category: LicenseType.optional()
 })
 
 const CreateProductData = z.object({
@@ -179,8 +185,9 @@ const CreateProductData = z.object({
   description: z.string().min(1),
   price: z.number().positive(),
   category: z.string().min(1),
-  imagen: z.string().url().optional(),
-  stock_quantity: z.number().int().min(0)
+  image_url: z.string().url().optional(),
+  stock_quantity: z.number().int().min(0),
+  license_type: z.string().min(1)
   // allow creating product with keys
 }).extend({
   product_keys: z.array(CreateProductKeyInputData).optional()
@@ -272,6 +279,40 @@ productRoutes.openapi(listProductsRoute, async (c) => {
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch products'
+    }, 500)
+  }
+})
+
+// License Types Endpoint
+const listLicenseTypesRoute = createRoute({
+  method: 'get',
+  path: '/license-types',
+  responses: {
+    200: {
+      description: 'List of license types',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            data: z.array(LicenseType)
+          })
+        }
+      }
+    },
+    500: {
+      description: 'Failed to fetch license types'
+    }
+  }
+})
+
+productRoutes.openapi(listLicenseTypesRoute, async (c) => {
+  try {
+    const licenseTypes = await productService.listLicenseTypes()
+    return c.json({ success: true, data: licenseTypes })
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch license types'
     }, 500)
   }
 })
@@ -386,7 +427,7 @@ const updateProductRoute = createRoute({
     }),
     body: {
       content: {
-        'multipart/form-data': {
+        'application/json': {
           schema: UpdateProductData
         }
       },
@@ -411,22 +452,7 @@ const updateProductRoute = createRoute({
 productRoutes.openapi(updateProductRoute, async (c) => {
   try {
   const { id } = c.req.valid('param')
-  const body = await c.req.parseBody()
-
-    const updateData: { [key: string]: any } = {}
-    for (const key in body) {
-      if (body[key] !== undefined) {
-        updateData[key] = body[key]
-      }
-    }
-
-    // Hono parsea los números como strings, hay que convertirlos
-    if (updateData.price) {
-      updateData.price = parseFloat(updateData.price)
-    }
-    if (updateData.stock_quantity) {
-      updateData.stock_quantity = parseInt(updateData.stock_quantity, 10)
-    }
+  const updateData = c.req.valid('json')
 
     const product = await productService.updateProduct(id, updateData)
 

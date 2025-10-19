@@ -72,6 +72,15 @@ export const envSchema = z.object({
   // Logging
   /** Nivel de logging de la aplicación */
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // Mercado Pago
+  /** Token de acceso de Mercado Pago (servidor) - usado para crear preferencias */
+  MERCADO_PAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+  /** Public key de Mercado Pago (cliente) - usada en frontend si es necesaria */
+  MERCADO_PAGO_PUBLIC_KEY: z.string().optional(),
+  /** Path público relativo para recibir notificaciones (webhook) */
+  MERCADO_PAGO_WEBHOOK_PATH: z.string().default('/payments/webhook'),
+  /** URL del frontend para redirecciones de pago */
+  FRONTEND_URL: z.string().url().optional(),
 })
 
 /**
@@ -118,4 +127,9 @@ export const {
   POST_LOGOUT_REDIRECT_URL,
   API_URL,
   CSRF_COOKIE
+  ,
+  MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_PUBLIC_KEY,
+  MERCADO_PAGO_WEBHOOK_PATH,
+  FRONTEND_URL
 } = env

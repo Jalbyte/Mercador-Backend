@@ -20,7 +20,8 @@
  *   productRoutes,
  *   cartRoutes,
  *   orderRoutes,
- *   profileRoutes
+ *   profileRoutes,
+ *   paymentRoutes
  * } from './routes'
  *
  * // Registrar todas las rutas en la aplicación
@@ -30,6 +31,7 @@
  * app.route('/cart', cartRoutes)
  * app.route('/orders', orderRoutes)
  * app.route('/profile', profileRoutes)
+ * app.route('/payments', paymentRoutes)
  *
  * // Estructura de rutas resultante:
  * // /health/* - Health checks
@@ -38,6 +40,7 @@
  * // /cart/* - Carrito de compras
  * // /orders/* - Órdenes
  * // /profile/* - Perfiles de usuario
+ * // /payments/* - Pagos con Mercado Pago
  * ```
  */
 
@@ -47,6 +50,9 @@ import productRoutes from './products.js'
 import cartRoutes from './cart.js'
 import orderRoutes from './orders.js'
 import profileRoutes from './profile.js'
+import paymentRoutes from './payments.js'  
+
+
 
 // Export all route modules
 export {
@@ -55,5 +61,6 @@ export {
   productRoutes,
   cartRoutes,
   orderRoutes,
-  profileRoutes
-}
+  profileRoutes,
+  paymentRoutes
+};

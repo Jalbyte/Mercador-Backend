@@ -66,8 +66,9 @@ const SignupSchema = z.object({
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*(),.?":{}|<>]).*$/,
       'La contraseña debe contener al menos una minúscula, una mayúscula y un carácter especial'),
-  full_name: z.string().min(2, 'El nombre completo es requerido'),
+  full_name: z.string().min(2, 'El nombre completo es requerido').optional(),
   country: z.string().optional(),
+  rememberMe: z.boolean().optional(),
 })
 
 const UserResponseSchema = z.object({
@@ -152,42 +153,54 @@ const createSessionCookie = (accessToken: string): string => {
 // 🚀 1. Signup
 const signupRoute = createRoute({
   method: 'post',
-  path: '/signup',
-  request: { body: { content: { 'application/json': { schema: SignupSchema } }, required: true } },
+  path: '/register',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: SignupSchema,
+        },
+      },
+    },
+  },
   responses: {
-    201: { description: 'Usuario creado', content: { 'application/json': { schema: z.object({ success: z.boolean(), data: UserResponseSchema }) } } },
-    400: { description: 'Error en la petición' },
-    409: { description: 'El correo ya está en uso' }
-  }
+    201: {
+      description: 'Usuario registrado exitosamente',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            data: z.any(),
+          }),
+        },
+      },
+    },
+    400: {
+      description: 'Error de validación o registro',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
 })
 
 authRoutes.openapi(signupRoute, async (c) => {
+  const body = c.req.valid('json')
+  const { email, password, full_name, country } = body
+
   try {
-    const body = c.req.valid('json');
-    const { data, error } = await userService.signupWithEmail(body.email, body.password, body);
-
-    // Manejo robusto de error: Supabase devuelve un objeto error, no siempre una instancia de Error
-    if (error) {
-      const msg = (error as any)?.message ?? JSON.stringify(error);
-      if (typeof msg === 'string' && msg.includes('already registered')) {
-        return c.json({ success: false, error: 'Este correo ya está en uso' }, 409);
-      }
-      return c.json({ success: false, error: msg }, 400);
-    }
-
-    if (!data || !data.user) {
-      return c.json({ success: false, error: 'No se pudo crear el usuario' }, 400);
-    }
-
-    return c.json({
-      success: true,
-      data: data
-    }, 201);
-  } catch (err) {
-    return c.json({ success: false, error: (err as Error).message }, 400);
+    const { data } = await userService.signupWithEmail(email, password, { full_name, country });
+    return c.json({ success: true, data }, 201)
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+    return c.json({ success: false, error: errorMessage }, 400)
   }
-});
-
+})
 
 // 🚀 2. Login (Email/Password)
 const loginRoute = createRoute({
@@ -203,14 +216,26 @@ const loginRoute = createRoute({
 authRoutes.openapi(loginRoute, async (c) => {
   try {
     const body = c.req.valid('json');
-    const { session } = await userService.loginWithEmail(body.email, body.password);
+    const result = await userService.loginWithEmail(body.email, body.password);
 
-    if (!session) throw new Error('No se pudo iniciar sesión');
+    if (!result.session) throw new Error('No se pudo iniciar sesión');
 
-    const sessionCookie = createSessionCookie(session.access_token);
+    // Si requiere MFA, devolver respuesta especial sin cookies de sesión completa
+    if (result.mfaRequired) {
+      return c.json({
+        success: true,
+        mfaRequired: true,
+        factorId: result.factorId,
+        // Devolver un token temporal para completar la verificación MFA
+        tempToken: result.session.access_token
+      }, 200);
+    }
+
+    // Login completo sin MFA
+    const sessionCookie = createSessionCookie(result.session.access_token);
     const isProduction = process.env.NODE_ENV === 'production'
     const refreshCookie = [
-      `sb_refresh_token=${session.refresh_token}`,
+      `sb_refresh_token=${result.session.refresh_token}`,
       `HttpOnly`,
       `Path=/auth`,
       `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
@@ -230,7 +255,7 @@ authRoutes.openapi(loginRoute, async (c) => {
 
     return c.json({
       success: true,
-      session: session
+      session: result.session
     }, 200, {
       'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
       'Access-Control-Allow-Credentials': 'true',
@@ -399,7 +424,7 @@ authRoutes.openapi(meRoute, async (c) => {
     return c.json({ success: true, data: userProfile });
   } catch (err) {
     console.error('Error fetching user profile:', err);
-    return c.json({ success: false, error: 'No se pudo obtener el perfil del usuario' }, 500);
+    return c.json({ success: false, error: 'No se pudo obtener el perfil del usuario' + err }, 401);
   }
 });
 
@@ -453,8 +478,121 @@ authRoutes.openapi(refreshRoute, async (c) => {
   }
 })
 
+// 🚀 Establecer sesión desde token (para confirmación de email y recovery)
+const sessionRoute = createRoute({
+  method: 'post',
+  path: '/session',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            access_token: z.string(),
+            refresh_token: z.string().optional()
+          })
+        }
+      }, required: true
+    }
+  },
+  responses: {
+    200: { description: 'Sesión establecida correctamente' },
+    401: { description: 'Token inválido' }
+  }
+})
+
+authRoutes.openapi(sessionRoute, async (c) => {
+  const { access_token, refresh_token } = c.req.valid('json')
+
+  try {
+    // Validar el access_token con Supabase
+    const { data: userData, error: userError } = await userService.getUserByAccessToken(access_token)
+    if (userError || !userData?.user) {
+      console.error('[Session] Token inválido:', userError?.message)
+      return c.json({ success: false, error: 'Token inválido o expirado' }, 401)
+    }
+
+    console.log('[Session] Token validado para usuario:', userData.user.id)
+
+    // Decodificar el token para obtener el expires_in
+    let expiresIn = 3600 // default 1 hora
+    try {
+      const decoded = jwt.decode(access_token) as { exp?: number } | null
+      if (decoded?.exp) {
+        const now = Math.floor(Date.now() / 1000)
+        expiresIn = Math.max(60, decoded.exp - now)
+      }
+    } catch (err) {
+      console.error('[Session] Error decodificando JWT:', err)
+    }
+
+    // Guardar la sesión en Redis
+    const redisService = await import('../services/redis.service.js')
+    await redisService.redisService.set(`session:${access_token}`, userData.user.id, expiresIn)
+    console.log('[Session] Sesión guardada en Redis para usuario:', userData.user.id)
+
+    // Guardar refresh token si está presente
+    if (refresh_token) {
+      const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
+      await redisService.redisService.set(`refresh:${refresh_token}`, userData.user.id, refreshTtlSeconds)
+      console.log('[Session] Refresh token guardado en Redis')
+    }
+
+    // Establecer cookies de sesión
+    const accessCookie = createSessionCookie(access_token)
+    const isProduction = process.env.NODE_ENV === 'production'
+    
+    const cookies = [accessCookie]
+    
+    if (refresh_token) {
+      const refreshCookie = [
+        `sb_refresh_token=${refresh_token}`,
+        `HttpOnly`,
+        `Path=/auth`,
+        `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+        isProduction ? 'Secure' : '',
+        `SameSite=Lax`
+      ].filter(Boolean).join('; ')
+      cookies.push(refreshCookie)
+    }
+
+    // Limpiar posibles cookies duplicadas
+    const clearAccessAuth = [
+      `sb_access_token=;`,
+      `HttpOnly`,
+      `Path=/auth`,
+      `Max-Age=0`,
+      isProduction ? 'Secure' : '',
+      `SameSite=Lax`
+    ].filter(Boolean).join('; ')
+    cookies.push(clearAccessAuth)
+
+    const csrf = issueCsrfCookie()
+    cookies.push(csrf)
+
+    const origin = c.req.header('Origin') || ''
+    
+    console.log('[Session] ✅ Sesión establecida correctamente')
+    return c.json({ 
+      success: true, 
+      message: 'Sesión establecida correctamente',
+      user: userData.user 
+    }, 200, {
+      'Set-Cookie': cookies,
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Origin': origin,
+    })
+  } catch (err) {
+    console.error('[Session] Error estableciendo sesión:', err)
+    const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
+    return c.json({ success: false, error: errorMessage }, 500)
+  }
+})
 
 
+
+// 🔐 MFA Routes
+
+// Enroll MFA (configurar por primera vez)
 const enrollMfaRoute = createRoute({
   method: 'post',
   path: '/mfa/enroll',
@@ -465,11 +603,18 @@ authRoutes.openapi(enrollMfaRoute, async (c) => {
   const token = getTokenFromRequest(c)
   if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
   const resp = await userService.enrollMfa(token)
-  if (resp.error) return c.json({ success: false, error: resp.error }, 400)
-  return c.json({ ok: true, factorId: resp.data.id, uri: resp.data.totp.uri })
+  if (resp.error) return c.json({ success: false, error: resp.error.message }, 400)
+  return c.json({ 
+    success: true, 
+    factorId: resp.data.id, 
+    qrCode: resp.data.totp.qr_code,
+    secret: resp.data.totp.secret,
+    uri: resp.data.totp.uri 
+  })
 })
 
-const verifyMfaRoute = createRoute({
+// Verify MFA durante configuración inicial
+const verifyMfaSetupRoute = createRoute({
   method: 'post',
   path: '/mfa/verify',
   security: [{ Bearer: [] }],
@@ -485,37 +630,157 @@ const verifyMfaRoute = createRoute({
       }, required: true
     }
   },
-  responses: { 200: { description: 'Factor verificado' } }
+  responses: { 200: { description: 'Factor verificado y activado' } }
 })
-authRoutes.openapi(verifyMfaRoute, async (c) => {
-  const token = getTokenFromRequest(c)
-  if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
+authRoutes.openapi(verifyMfaSetupRoute, async (c) => {
   const { factorId, code } = c.req.valid('json')
-  const resp = await userService.verifyMFA(token, factorId, code)
-  return c.json(resp)
-})
-
-authRoutes.openapi(enrollMfaRoute, async (c) => {
-  const token = c.req.header('Authorization')?.replace('Bearer ', '')
-  if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
-
-  const { data, error } = await userService.enrollMfa(token);
-  if (error) return c.json({ success: false, error: error.message }, 400);
-
-  // Supabase MFA enroll returns `data.totp.qr_code` (and `.uri`) inside the response
-  return c.json({ success: true, qr_code: data?.totp?.qr_code ?? data?.totp?.uri, factor_id: data?.id });
-});
-
-authRoutes.openapi(verifyMfaRoute, async (c) => {
-  const { factorId, code } = c.req.valid('json');
   const token = getTokenFromRequest(c)
   if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
 
-  const { data, error } = await userService.verifyMFA(token, factorId, code);
-  if (error) return c.json({ success: false, error: (error as any)?.message ?? 'MFA verification failed' }, 400);
+  const { data, error } = await userService.verifyMFA(token, factorId, code)
+  if (error) return c.json({ success: false, error: error.message }, 400)
 
-  return c.json({ success: true, message: 'MFA activada correctamente', data });
-});
+  return c.json({ success: true, message: 'MFA activado correctamente' })
+})
 
+// Verify MFA durante login (completar autenticación)
+const verifyMfaLoginRoute = createRoute({
+  method: 'post',
+  path: '/mfa/verify-login',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            factorId: z.string(),
+            code: z.string(),
+            tempToken: z.string()
+          })
+        }
+      }, required: true
+    }
+  },
+  responses: { 200: { description: 'Login completado después de MFA' } }
+})
+authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
+  const { factorId, code, tempToken } = c.req.valid('json')
 
+  try {
+    // Verificar el código MFA
+    const { data, error } = await userService.verifyMFA(tempToken, factorId, code)
+
+    if (error) {
+      return c.json({ success: false, error: error.message }, 401)
+    }
+
+    // Decodificar el token para obtener información de sesión
+    const decoded = jwt.decode(tempToken) as any
+    if (!decoded) {
+      throw new Error('Invalid token')
+    }
+
+    // Validar que todos los campos requeridos estén presentes
+    if (!data?.access_token || !data?.refresh_token || !data?.user?.id) {
+      const missingFields = [];
+      if (!data?.access_token) missingFields.push('access_token');
+      if (!data?.refresh_token) missingFields.push('refresh_token');
+      if (!data?.user?.id) missingFields.push('user.id');
+      
+      throw new Error(`Missing required fields in MFA response: ${missingFields.join(', ')}`);
+    }
+
+    // Usar directamente los datos de la verificación MFA exitosa
+    const sessionData = {
+      session: {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+        user: data.user,
+        expires_in: data.expires_in || 3600
+      }
+    }
+
+    // Completar el login en Redis
+    await userService.completeMFALogin(
+      sessionData.session.access_token,
+      sessionData.session.refresh_token,
+      sessionData.session.user.id,
+      sessionData.session.expires_in,
+      tempToken
+    )
+
+    // Crear cookies de sesión
+    const sessionCookie = createSessionCookie(sessionData.session.access_token)
+    const isProduction = process.env.NODE_ENV === 'production'
+    const refreshCookie = [
+      `sb_refresh_token=${sessionData.session.refresh_token}`,
+      `HttpOnly`,
+      `Path=/auth`,
+      `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+      isProduction ? 'Secure' : '',
+      `SameSite=Lax`
+    ].filter(Boolean).join('; ')
+    const clearAccessAuth = [
+      `sb_access_token=;`,
+      `HttpOnly`,
+      `Path=/auth`,
+      `Max-Age=0`,
+      isProduction ? 'Secure' : '',
+      `SameSite=Lax`
+    ].filter(Boolean).join('; ')
+    const origin = c.req.header('Origin') || ''
+
+    return c.json({
+      success: true,
+      session: sessionData.session
+    }, 200, {
+      'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Origin': origin,
+    })
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
+    return c.json({ success: false, error: errorMessage }, 500)
+  }
+})
+
+// Unenroll MFA (desactivar)
+const unenrollMfaRoute = createRoute({
+  method: 'delete',
+  path: '/mfa/unenroll',
+  security: [{ Bearer: [] }],
+  request: {},
+  responses: { 200: { description: 'Factor MFA eliminado' } }
+})
+authRoutes.openapi(unenrollMfaRoute, async (c) => {
+  const token = getTokenFromRequest(c)
+  if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
+  const { data: factorsData, error: factorsError } = await userService.listMFAFactors(token)
+
+  if (factorsError) return c.json({ success: false, error: factorsError.message }, 400)
+  if (!factorsData || factorsData.all.length === 0) {
+    return c.json({ success: false, error: 'No hay factores MFA para eliminar' }, 400)
+  }
+  const factorId = factorsData.all[0].id // Asumimos que solo hay un factor y tomamos el primero
+  const { data, error } = await userService.unenrollMFA(token, factorId)
+  if (error) return c.json({ success: false, error: error.message }, 400)
+
+  return c.json({ success: true, message: 'MFA desactivado correctamente' })
+})
+
+// List MFA factors
+const listMfaRoute = createRoute({
+  method: 'get',
+  path: '/mfa/factors',
+  security: [{ Bearer: [] }],
+  responses: { 200: { description: 'Lista de factores MFA' } }
+})
+authRoutes.openapi(listMfaRoute, async (c) => {
+  const token = getTokenFromRequest(c)
+  if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
+
+  const { data, error } = await userService.listMFAFactors(token)
+  if (error) return c.json({ success: false, error: error.message }, 400)
+
+  return c.json({ success: true, factors: data.all })
+})
 export default authRoutes;
