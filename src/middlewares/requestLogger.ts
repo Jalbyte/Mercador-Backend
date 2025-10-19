@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
-import { pino } from 'pino'
+import pino from 'pino'
 
 /**
  * Middleware para logging de requests HTTP
