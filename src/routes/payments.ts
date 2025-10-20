@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middlewares/auth.js';
+import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js';
 import * as paymentService from '../services/payment.service.js';
 import * as orderService from '../services/order.service.js';
 import * as cartService from '../services/cart.service.js';
@@ -8,23 +9,41 @@ import type { CreatePaymentRequest, PaymentNotification } from '../types/payment
 
 const payment = new Hono();
 
+// Helper: Extrae token desde Authorization header
+function getTokenFromRequest(c: any): string | undefined {
+  const authHeader = c.req.header('Authorization')
+  return authHeader ? authHeader.replace('Bearer ', '') : undefined
+}
+
+// Aplicar middlewares globales (excepto webhook)
+payment.use('/create', cookieToAuthHeader)
+payment.use('/create', authMiddleware)
+payment.use('/status/:paymentId', cookieToAuthHeader)
+payment.use('/status/:paymentId', authMiddleware)
+payment.use('/order/:orderId', cookieToAuthHeader)
+payment.use('/order/:orderId', authMiddleware)
+
 /**
  * POST /api/payments/create
  * Crea una preferencia de pago desde el carrito del usuario
  */
-payment.post('/create', authMiddleware, async (c) => {
+payment.post('/create', async (c) => {
   try {
     const userId = c.get('userId');
     if (!userId) {
       return c.json({ error: 'Usuario no autenticado' }, 401);
     }
+    
+    // Extraer token para operaciones autenticadas
+    const token = getTokenFromRequest(c);
+    
     const body = await c.req.json<{
       payer?: CreatePaymentRequest['payer'];
       shipping_address?: any;
     }>();
 
-    // Obtener el carrito del usuario
-    const cart = await cartService.getUserCart(userId);
+    // Obtener el carrito del usuario (con token)
+    const cart = await cartService.getUserCart(userId, token);
 
     if (!cart.items || cart.items.length === 0) {
       return c.json({ error: 'El carrito está vacío' }, 400);
@@ -46,11 +65,11 @@ payment.post('/create', authMiddleware, async (c) => {
       return c.json({ error: stockCheck.message }, 400);
     }
 
-    // Crear orden en estado 'pending'
+    // Crear orden en estado 'pending' (con token)
     const order = await orderService.createOrder(userId, {
       shippingAddress: body.shipping_address || {},
       paymentMethod: 'mercadopago',
-    });
+    }, token);
 
     // Obtener información del usuario para el pago
     const { data: profile } = await supabase
@@ -72,11 +91,34 @@ payment.post('/create', authMiddleware, async (c) => {
       order.id
     );
 
+    // Determinar la URL correcta según el entorno
+    const checkoutUrl = paymentService.IS_SANDBOX 
+      ? preference.sandbox_init_point 
+      : preference.init_point;
+
+    console.log('💳 Payment preference ready:', {
+      mode: paymentService.IS_SANDBOX ? '🧪 SANDBOX' : '🚀 PRODUCTION',
+      preference_id: preference.id,
+      checkout_url: checkoutUrl,
+      url_type: paymentService.IS_SANDBOX ? 'sandbox_init_point' : 'init_point',
+    });
+
+    // Verificación de seguridad
+    if (paymentService.IS_SANDBOX && checkoutUrl && !checkoutUrl.includes('sandbox')) {
+      console.error('🚨 CRITICAL ERROR: Using production URL in sandbox mode!');
+      console.error('URL:', checkoutUrl);
+      return c.json({ 
+        error: 'Configuración incorrecta: URL de producción en modo sandbox',
+        details: 'El sistema está configurado en modo sandbox pero la URL generada es de producción'
+      }, 500);
+    }
+
     return c.json({
       preference_id: preference.id,
-      init_point: preference.init_point,
-      sandbox_init_point: preference.sandbox_init_point,
+      init_point: checkoutUrl, // URL correcta según el entorno
+      sandbox_init_point: preference.sandbox_init_point, // Por compatibilidad
       order_id: order.id,
+      mode: paymentService.IS_SANDBOX ? 'sandbox' : 'production',
     });
   } catch (error) {
     console.error('❌ Error creating payment preference:', error);
@@ -179,7 +221,7 @@ payment.post('/webhook', async (c) => {
  * GET /api/payments/status/:paymentId
  * Verifica el estado de un pago específico
  */
-payment.get('/status/:paymentId', authMiddleware, async (c) => {
+payment.get('/status/:paymentId', async (c) => {
   try {
     const userId = c.get('userId');
     if (!userId) {
@@ -203,15 +245,18 @@ payment.get('/status/:paymentId', authMiddleware, async (c) => {
  * GET /api/payments/order/:orderId
  * Obtiene el estado de una orden con sus items
  */
-payment.get('/order/:orderId', authMiddleware, async (c) => {
+payment.get('/order/:orderId', async (c) => {
   try {
     const userId = c.get('userId');
     if (!userId) {
       return c.json({ error: 'Usuario no autenticado' }, 401);
     }
+    
+    // Extraer token para operaciones autenticadas
+    const token = getTokenFromRequest(c);
     const orderId = c.req.param('orderId');
     
-    const order = await orderService.getOrderById(userId, orderId);
+    const order = await orderService.getOrderById(userId, orderId, token);
     
     if (!order) {
       return c.json({ error: 'Orden no encontrada' }, 404);

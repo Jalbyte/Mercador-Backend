@@ -50,7 +50,8 @@ import productRoutes from './products.js'
 import cartRoutes from './cart.js'
 import orderRoutes from './orders.js'
 import profileRoutes from './profile.js'
-import paymentRoutes from './payments.js'  
+// import paymentRoutes from './payments.js' // ⚠️ Mercado Pago deshabilitado
+import payuRoutes from './payu.js'
 
 
 
@@ -62,5 +63,6 @@ export {
   cartRoutes,
   orderRoutes,
   profileRoutes,
-  paymentRoutes
+  // paymentRoutes, // ⚠️ Mercado Pago deshabilitado
+  payuRoutes
 };

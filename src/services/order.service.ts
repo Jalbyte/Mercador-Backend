@@ -42,6 +42,8 @@
  */
 
 import { supabase } from '../config/supabase.js'
+import { supabaseAdmin } from '../config/supabase.js'
+import { createSupabaseClient } from './user.service.js'
 
 export interface Order {
   id: string
@@ -58,11 +60,11 @@ export interface Order {
 export interface OrderItem {
   id: string
   order_id: string
-  product_id: string
+  product_id: number
   quantity: number
   price: number
   product?: {
-    id: string
+    id: number
     name: string
     image_url?: string
   }
@@ -73,8 +75,13 @@ export interface CreateOrderData {
   paymentMethod: string
 }
 
-export async function getUserOrders(userId: string): Promise<Order[]> {
-  const { data: orders, error } = await supabase
+export async function getUserOrders(userId: string, accessToken?: string): Promise<Order[]> {
+  // Usar cliente autenticado si se proporciona token, sino usar admin
+  const client = accessToken 
+    ? createSupabaseClient(accessToken) 
+    : (supabaseAdmin || supabase);
+  
+  const { data: orders, error } = await client
     .from('orders')
     .select(`
       *,
@@ -97,8 +104,13 @@ export async function getUserOrders(userId: string): Promise<Order[]> {
   return orders || []
 }
 
-export async function getOrderById(userId: string, orderId: string): Promise<Order | null> {
-  const { data: order, error } = await supabase
+export async function getOrderById(userId: string, orderId: string, accessToken?: string): Promise<Order | null> {
+  // Usar cliente autenticado si se proporciona token, sino usar admin
+  const client = accessToken 
+    ? createSupabaseClient(accessToken) 
+    : (supabaseAdmin || supabase);
+  
+  const { data: order, error } = await client
     .from('orders')
     .select(`
       *,
@@ -125,9 +137,25 @@ export async function getOrderById(userId: string, orderId: string): Promise<Ord
   return order
 }
 
-export async function createOrder(userId: string, orderData: CreateOrderData): Promise<Order> {
-  // Get user's cart
-  const { data: cartItems, error: cartError } = await supabase
+export async function createOrder(userId: string, orderData: CreateOrderData, accessToken?: string): Promise<Order> {
+  // Usar cliente autenticado si se proporciona token, sino usar admin
+  const client = accessToken 
+    ? createSupabaseClient(accessToken) 
+    : (supabaseAdmin || supabase);
+
+  // Get user's cart first
+  const { data: userCart, error: cartFetchError } = await client
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (cartFetchError || !userCart) {
+    throw new Error('Cart not found')
+  }
+
+  // Get cart items
+  const { data: cartItems, error: cartError } = await client
     .from('cart_items')
     .select(`
       *,
@@ -137,7 +165,7 @@ export async function createOrder(userId: string, orderData: CreateOrderData): P
         price
       )
     `)
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (cartError) {
     throw new Error(`Failed to fetch cart: ${cartError.message}`)
@@ -153,7 +181,7 @@ export async function createOrder(userId: string, orderData: CreateOrderData): P
   }, 0)
 
   // Create order
-  const { data: order, error: orderError } = await supabase
+  const { data: order, error: orderError } = await client
     .from('orders')
     .insert({
       user_id: userId,
@@ -179,7 +207,7 @@ export async function createOrder(userId: string, orderData: CreateOrderData): P
     price: cartItem.product.price
   }))
 
-  const { error: itemsError } = await supabase
+  const { error: itemsError } = await client
     .from('order_items')
     .insert(orderItems)
 
@@ -187,22 +215,27 @@ export async function createOrder(userId: string, orderData: CreateOrderData): P
     throw new Error(`Failed to create order items: ${itemsError.message}`)
   }
 
-  // Clear cart
-  const { error: clearError } = await supabase
+  // Clear cart items
+  const { error: clearError } = await client
     .from('cart_items')
     .delete()
-    .eq('user_id', userId)
+    .eq('cart_id', userCart.id)
 
   if (clearError) {
     throw new Error(`Failed to clear cart: ${clearError.message}`)
   }
 
   // Return order with items
-  return await getOrderById(userId, order.id) as Order
+  return await getOrderById(userId, order.id, accessToken) as Order
 }
 
-export async function updateOrderStatus(orderId: string, status: Order['status']): Promise<Order> {
-  const { data: order, error } = await supabase
+export async function updateOrderStatus(orderId: string, status: Order['status'], accessToken?: string): Promise<Order> {
+  // Usar cliente autenticado si se proporciona token, sino usar admin
+  const client = accessToken 
+    ? createSupabaseClient(accessToken) 
+    : (supabaseAdmin || supabase);
+    
+  const { data: order, error } = await client
     .from('orders')
     .update({
       status,
@@ -232,7 +265,10 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
 export async function getAllOrders(filters: { status?: string; page?: number; limit?: number } = {}): Promise<{ orders: Order[]; total: number }> {
   const { status, page = 1, limit = 10 } = filters
 
-  let query = supabase
+  // Usar cliente admin para operaciones administrativas
+  const client = supabaseAdmin || supabase;
+
+  let query = client
     .from('orders')
     .select(`
       *,
@@ -267,25 +303,35 @@ export async function getAllOrders(filters: { status?: string; page?: number; li
 }
 
 /**
- * Actualiza el estado de una orden y opcionalmente el payment_id
+ * Actualiza el estado de una orden
+ * Nota: El payment_id se registra en los logs pero no se guarda en DB
+ * (la columna payment_id no existe en la tabla orders)
+ * 
+ * Si no se proporciona accessToken, usa el cliente admin de Supabase
+ * (útil para webhooks sin autenticación de usuario)
  */
 export async function updateOrderStatusWithPayment(
   orderId: string,
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled',
-  paymentId?: string
+  paymentId?: string,
+  accessToken?: string
 ) {
-  const updateData: any = {
-    status,
-    updated_at: new Date().toISOString(),
-  };
-
+  // Log del payment_id para trazabilidad
   if (paymentId) {
-    updateData.payment_id = paymentId;
+    console.log(`💳 Order ${orderId} - Payment ID: ${paymentId}`);
   }
 
-  const { data: order, error } = await supabase
+  // Usar cliente autenticado si se proporciona token, sino usar admin
+  const client = accessToken 
+    ? createSupabaseClient(accessToken) 
+    : (supabaseAdmin || supabase);
+
+  const { data: order, error } = await client
     .from('orders')
-    .update(updateData)
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', orderId)
     .select()
     .single();
@@ -300,9 +346,12 @@ export async function updateOrderStatusWithPayment(
 
 /**
  * Obtiene el user_id de una orden
+ * Usa cliente admin porque es llamada desde webhooks
  */
 export async function getOrderUserId(orderId: string): Promise<string | null> {
-  const { data: order, error } = await supabase
+  const client = supabaseAdmin || supabase;
+  
+  const { data: order, error } = await client
     .from('orders')
     .select('user_id')
     .eq('id', orderId)
@@ -317,10 +366,13 @@ export async function getOrderUserId(orderId: string): Promise<string | null> {
 
 
 /**
- * Obtiene productos por sus IDs (para Mercado Pago)
+ * Obtiene productos por sus IDs
+ * Usa cliente admin porque puede ser llamada desde contextos sin autenticación
  */
-export async function getProductsByIds(productIds: string[]) {
-  const { data: products, error } = await supabase
+export async function getProductsByIds(productIds: number[]) {
+  const client = supabaseAdmin || supabase;
+  
+  const { data: products, error } = await client
     .from('products')
     .select('*')
     .in('id', productIds);
@@ -336,7 +388,7 @@ export async function getProductsByIds(productIds: string[]) {
  * Verifica el stock de productos antes de crear una orden
  */
 export async function verifyProductsStock(
-  items: Array<{ product_id: string; quantity: number }>
+  items: Array<{ product_id: number; quantity: number }>
 ): Promise<{ valid: boolean; message?: string }> {
   const productIds = items.map(item => item.product_id);
   const products = await getProductsByIds(productIds);
@@ -357,4 +409,129 @@ export async function verifyProductsStock(
   }
   
   return { valid: true };
+}
+
+/**
+ * Interfaz para errores de pedidos
+ */
+export interface OrderError {
+  order_id: string
+  error_type: 'stock' | 'payment' | 'delivery' | 'key_assignment'
+  error_message: string
+  created_at: string
+}
+
+/**
+ * Calcula la exactitud del pedido (Order Accuracy)
+ * Métrica: % de pedidos entregados sin error
+ * Target: Superior al 95%
+ * 
+ * @returns Objeto con el porcentaje de exactitud y estadísticas
+ */
+export async function calculateOrderAccuracy(): Promise<{
+  accuracy: number
+  totalOrders: number
+  successfulOrders: number
+  errorOrders: number
+  meetsTarget: boolean
+}> {
+  try {
+    // Obtener total de órdenes
+    const { count: totalOrders, error: ordersError } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+
+    if (ordersError) {
+      console.error('Error al obtener total de órdenes:', ordersError)
+      throw ordersError
+    }
+
+    // Obtener órdenes con errores (asumiendo que existe una tabla order_errors)
+    // Si no existe, puedes contar las órdenes canceladas como proxy
+    const { count: errorOrdersCount, error: errorsError } = await supabase
+      .from('order_errors')
+      .select('order_id', { count: 'exact', head: true })
+
+    // Si la tabla order_errors no existe, usar órdenes canceladas como alternativa
+    let errorCount = 0
+    if (errorsError && errorsError.code === '42P01') {
+      // Tabla no existe, usar órdenes canceladas
+      const { count: cancelledCount } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'cancelled')
+      
+      errorCount = cancelledCount || 0
+      console.log('ℹ Tabla order_errors no encontrada, usando órdenes canceladas como proxy')
+    } else if (errorsError) {
+      console.error('Error al obtener errores de órdenes:', errorsError)
+      errorCount = 0
+    } else {
+      errorCount = errorOrdersCount || 0
+    }
+
+    const total = totalOrders || 0
+    const errors = errorCount
+    const successful = total - errors
+
+    // Calcular exactitud (evitar división por cero)
+    const accuracy = total > 0 ? ((successful / total) * 100) : 100
+
+    const result = {
+      accuracy: Number(accuracy.toFixed(2)),
+      totalOrders: total,
+      successfulOrders: successful,
+      errorOrders: errors,
+      meetsTarget: accuracy >= 95
+    }
+
+    // Log con colores y formato
+    console.log('\n' + '='.repeat(60))
+    console.log('MÉTRICA: EXACTITUD DEL PEDIDO (Order Accuracy)')
+    console.log('='.repeat(60))
+    console.log(`Total de pedidos:        ${result.totalOrders}`)
+    console.log(`Pedidos correctos:       ${result.successfulOrders}`)
+    console.log(`Pedidos con error:       ${result.errorOrders}`)
+    console.log('─'.repeat(60))
+    console.log(`Exactitud:               ${result.accuracy}%`)
+    console.log(`Target (>95%):           ${result.meetsTarget ? 'CUMPLE' : 'NO CUMPLE'}`)
+    console.log('='.repeat(60) + '\n')
+
+    return result
+  } catch (error) {
+    console.error('Error al calcular exactitud del pedido:', error)
+    throw error
+  }
+}
+
+/**
+ * Registra un error en un pedido
+ * Útil para llevar tracking de problemas y calcular métricas
+ */
+export async function logOrderError(
+  orderId: string,
+  errorType: OrderError['error_type'],
+  errorMessage: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('order_errors')
+      .insert({
+        order_id: orderId,
+        error_type: errorType,
+        error_message: errorMessage,
+        created_at: new Date().toISOString()
+      })
+
+    if (error) {
+      // Si la tabla no existe, solo log el error (no fallar)
+      if (error.code === '42P01') {
+        console.warn('Tabla order_errors no existe. Considera crearla para tracking de errores.')
+      } else {
+        console.error('Error al registrar error de orden:', error)
+      }
+    }
+  } catch (err) {
+    console.error('Error al guardar error de orden:', err)
+  }
 }

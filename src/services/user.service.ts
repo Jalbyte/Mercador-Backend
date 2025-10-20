@@ -216,19 +216,23 @@ export async function requestPasswordReset(email: string) {
 /**
  * Actualizar la contraseña del usuario.
  */
-export async function updatePassword(newPassword: string) {
-  const { data, error } = await supabase.auth.updateUser({
-    password: newPassword,
-  })
+export async function updatePassword(accessToken: string, newPassword: string) {
+  if (accessToken) {
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword,
+      })
 
-  if (error) {
-    throw new Error(`Password update failed: ${error.message}`)
-  }
-  if (!data.user) {
-    throw new Error('Password update failed: no user returned')
-  }
+      if (error) {
+        throw new Error(`Password update failed: ${error.message}`)
+      }
+      if (!data.user) {
+        throw new Error('Password update failed: no user returned')
+      }
 
-  return { user: data.user, error }
+      return { user: data.user, error }
+    }
+
+  throw new Error('Access token is required to update password')
 }
 
 /**

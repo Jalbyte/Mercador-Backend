@@ -34,30 +34,40 @@
  */
 
 import { supabase } from '../config/supabase.js'
+import { createSupabaseClient } from './user.service.js'
 
 export interface CartItem {
-  id: string
-  product_id: string
+  id: number
+  cart_id?: number
+  product_id: number
   quantity: number
   created_at: string
   updated_at: string
   product?: {
-    id: string
+    id: number
     name: string
     price: number
     image_url?: string
+    stock_quantity?: number
   }
+  max_quantity?: number // Stock disponible
+  is_available?: boolean // Si el producto aún existe
+  has_enough_stock?: boolean // Si hay suficiente stock
 }
 
 export interface Cart {
   items: CartItem[]
   total: number
   itemCount: number
+  valid?: boolean // Si todos los items son válidos
 }
 
-export async function getUserCart(userId: string): Promise<Cart> {
+export async function getUserCart(userId: string, accessToken?: string): Promise<Cart> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
   // Primero obtener el cart del usuario
-  const { data: userCart, error: cartError } = await supabase
+  const { data: userCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -66,13 +76,13 @@ export async function getUserCart(userId: string): Promise<Cart> {
   if (cartError) {
     // Si no existe un cart para el usuario, devolver cart vacío
     if (cartError.code === 'PGRST116') {
-      return { items: [], total: 0, itemCount: 0 }
+      return { items: [], total: 0, itemCount: 0, valid: true }
     }
     throw new Error(`Failed to fetch cart: ${cartError.message}`)
   }
 
-  // Ahora obtener los items del cart
-  const { data: cartItems, error } = await supabase
+  // Ahora obtener los items del cart con stock_quantity
+  const { data: cartItems, error } = await client
     .from('cart_items')
     .select(`
       *,
@@ -80,7 +90,8 @@ export async function getUserCart(userId: string): Promise<Cart> {
         id,
         name,
         price,
-        image_url
+        image_url,
+        stock_quantity
       )
     `)
     .eq('cart_id', userCart.id)
@@ -89,7 +100,27 @@ export async function getUserCart(userId: string): Promise<Cart> {
     throw new Error(`Failed to fetch cart items: ${error.message}`)
   }
 
-  const items = cartItems || []
+  // Validar cada item contra el stock actual
+  let allValid = true
+  const items = (cartItems || []).map((item: any) => {
+    const product = item.product
+    const isAvailable = !!product // El producto aún existe
+    const stockQuantity = product?.stock_quantity || 0
+    const hasEnoughStock = item.quantity <= stockQuantity
+    const isValid = isAvailable && hasEnoughStock
+
+    if (!isValid) {
+      allValid = false
+    }
+
+    return {
+      ...item,
+      max_quantity: stockQuantity,
+      is_available: isAvailable,
+      has_enough_stock: hasEnoughStock
+    }
+  })
+
   const total = items.reduce((sum: number, item: any) => {
     const price = item.product?.price || 0
     return sum + (price * item.quantity)
@@ -98,15 +129,36 @@ export async function getUserCart(userId: string): Promise<Cart> {
   return {
     items,
     total,
-    itemCount: items.length
+    itemCount: items.length,
+    valid: allValid
   }
 }
 
-export async function addToCart(userId: string, productId: number, quantity: number): Promise<CartItem> {
+export async function addToCart(userId: string, productId: number, quantity: number, accessToken?: string): Promise<CartItem> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
+  // Validar stock antes de agregar
+  const { data: product, error: productError } = await client
+    .from('products')
+    .select('id, stock_quantity')
+    .eq('id', productId)
+    .single()
+
+  if (productError) {
+    throw new Error(`Product not found: ${productError.message}`)
+  }
+
+  if (!product || product.stock_quantity < quantity) {
+    const availableStock = product?.stock_quantity || 0;
+    console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`);
+    throw new Error(`la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`)
+  }
+
   // Primero obtener o crear el cart del usuario
   let userCart = null
 
-  const { data: existingCart, error: cartError } = await supabase
+  const { data: existingCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -118,7 +170,7 @@ export async function addToCart(userId: string, productId: number, quantity: num
 
   if (!existingCart) {
     // Crear un nuevo cart para el usuario
-    const { data: newCart, error: createCartError } = await supabase
+    const { data: newCart, error: createCartError } = await client
       .from('carts')
       .insert({ user_id: userId })
       .select('id')
@@ -134,7 +186,7 @@ export async function addToCart(userId: string, productId: number, quantity: num
   }
 
   // Check if item already exists in cart
-  const { data: existingItem } = await supabase
+  const { data: existingItem } = await client
     .from('cart_items')
     .select('*')
     .eq('cart_id', userCart.id)
@@ -142,9 +194,16 @@ export async function addToCart(userId: string, productId: number, quantity: num
     .single()
 
   if (existingItem) {
-    // Update quantity
+    // Update quantity - validar que no exceda el stock
     const newQuantity = existingItem.quantity + quantity
-    const { data: updatedItem, error } = await supabase
+    
+    if (newQuantity > product.stock_quantity) {
+      const availableStock = product.stock_quantity || 0;
+      console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${newQuantity}. Disponible: ${availableStock}`);
+      throw new Error(`la cantidad del producto sobrepasa su límite ${newQuantity}. Disponible: ${availableStock}`)
+    }
+    
+    const { data: updatedItem, error } = await client
       .from('cart_items')
       .update({
         quantity: newQuantity,
@@ -169,7 +228,7 @@ export async function addToCart(userId: string, productId: number, quantity: num
     return updatedItem
   } else {
     // Add new item
-    const { data: newItem, error } = await supabase
+    const { data: newItem, error } = await client
       .from('cart_items')
       .insert({
         cart_id: userCart.id,
@@ -197,9 +256,12 @@ export async function addToCart(userId: string, productId: number, quantity: num
   }
 }
 
-export async function updateCartItem(userId: string, itemId: string, quantity: number): Promise<CartItem> {
+export async function updateCartItem(userId: string, itemId: number, quantity: number, accessToken?: string): Promise<CartItem> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
   // Primero obtener el cart del usuario
-  const { data: userCart, error: cartError } = await supabase
+  const { data: userCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -209,7 +271,36 @@ export async function updateCartItem(userId: string, itemId: string, quantity: n
     throw new Error(`Failed to fetch user cart: ${cartError.message}`)
   }
 
-  const { data: updatedItem, error } = await supabase
+  // Obtener el item del carrito para validar el producto
+  const { data: cartItem, error: itemError } = await client
+    .from('cart_items')
+    .select('product_id')
+    .eq('id', itemId)
+    .eq('cart_id', userCart.id)
+    .single()
+
+  if (itemError) {
+    throw new Error(`Cart item not found: ${itemError.message}`)
+  }
+
+  // Validar stock
+  const { data: product, error: productError } = await client
+    .from('products')
+    .select('id, stock_quantity')
+    .eq('id', cartItem.product_id)
+    .single()
+
+  if (productError) {
+    throw new Error(`Product not found: ${productError.message}`)
+  }
+
+  if (!product || product.stock_quantity < quantity) {
+    const availableStock = product?.stock_quantity || 0;
+    console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`);
+    throw new Error(`la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`)
+  }
+
+  const { data: updatedItem, error } = await client
     .from('cart_items')
     .update({
       quantity,
@@ -235,9 +326,12 @@ export async function updateCartItem(userId: string, itemId: string, quantity: n
   return updatedItem
 }
 
-export async function removeFromCart(userId: string, itemId: string): Promise<void> {
+export async function removeFromCart(userId: string, itemId: number, accessToken?: string): Promise<void> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
   // Primero obtener el cart del usuario
-  const { data: userCart, error: cartError } = await supabase
+  const { data: userCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -247,7 +341,7 @@ export async function removeFromCart(userId: string, itemId: string): Promise<vo
     throw new Error(`Failed to fetch user cart: ${cartError.message}`)
   }
 
-  const { error } = await supabase
+  const { error } = await client
     .from('cart_items')
     .delete()
     .eq('id', itemId)
@@ -258,9 +352,12 @@ export async function removeFromCart(userId: string, itemId: string): Promise<vo
   }
 }
 
-export async function clearCart(userId: string): Promise<void> {
+export async function clearCart(userId: string, accessToken?: string): Promise<void> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
   // Primero obtener el cart del usuario
-  const { data: userCart, error: cartError } = await supabase
+  const { data: userCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -274,7 +371,7 @@ export async function clearCart(userId: string): Promise<void> {
     throw new Error(`Failed to fetch user cart: ${cartError.message}`)
   }
 
-  const { error } = await supabase
+  const { error } = await client
     .from('cart_items')
     .delete()
     .eq('cart_id', userCart.id)
@@ -284,9 +381,12 @@ export async function clearCart(userId: string): Promise<void> {
   }
 }
 
-export async function getCartItemCount(userId: string): Promise<number> {
+export async function getCartItemCount(userId: string, accessToken?: string): Promise<number> {
+  // Usar cliente autenticado si se proporciona token
+  const client = accessToken ? createSupabaseClient(accessToken) : supabase
+  
   // Primero obtener el cart del usuario
-  const { data: userCart, error: cartError } = await supabase
+  const { data: userCart, error: cartError } = await client
     .from('carts')
     .select('id')
     .eq('user_id', userId)
@@ -300,7 +400,7 @@ export async function getCartItemCount(userId: string): Promise<number> {
     throw new Error(`Failed to fetch user cart: ${cartError.message}`)
   }
 
-  const { count, error } = await supabase
+  const { count, error } = await client
     .from('cart_items')
     .select('*', { count: 'exact', head: true })
     .eq('cart_id', userCart.id)
@@ -310,4 +410,57 @@ export async function getCartItemCount(userId: string): Promise<number> {
   }
 
   return count || 0
+}
+
+/**
+ * Maneja múltiples operaciones de carrito en batch
+ */
+export async function manageBatchCartItems(
+  userId: string,
+  operations: Array<{ productId: number; quantity: number }>,
+  accessToken?: string
+): Promise<{ success: boolean; results: Array<{ productId: number; action: string; error?: string }> }> {
+  const results: Array<{ productId: number; action: string; error?: string }> = []
+
+  for (const operation of operations) {
+    try {
+      if (operation.quantity === 0) {
+        // Eliminar item
+        const cart = await getUserCart(userId, accessToken)
+        const existingItem = cart.items?.find(item => item.product_id === operation.productId)
+        
+        if (existingItem) {
+          await removeFromCart(userId, existingItem.id, accessToken)
+          results.push({ productId: operation.productId, action: 'removed' })
+        } else {
+          results.push({ productId: operation.productId, action: 'skipped' })
+        }
+      } else {
+        // Verificar si existe
+        const cart = await getUserCart(userId, accessToken)
+        const existingItem = cart.items?.find(item => item.product_id === operation.productId)
+
+        if (existingItem) {
+          // Actualizar
+          await updateCartItem(userId, existingItem.id, operation.quantity, accessToken)
+          results.push({ productId: operation.productId, action: 'updated' })
+        } else {
+          // Agregar
+          await addToCart(userId, operation.productId, operation.quantity, accessToken)
+          results.push({ productId: operation.productId, action: 'added' })
+        }
+      }
+    } catch (error) {
+      results.push({
+        productId: operation.productId,
+        action: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+  }
+
+  return {
+    success: results.every(r => r.action !== 'failed'),
+    results
+  }
 }

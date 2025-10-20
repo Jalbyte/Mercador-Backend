@@ -75,12 +75,28 @@ export const envSchema = z.object({
   // Mercado Pago
   /** Token de acceso de Mercado Pago (servidor) - usado para crear preferencias */
   MERCADO_PAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+  /** Token de prueba de Mercado Pago (sandbox) - usado en desarrollo */
+  MERCADO_PAGO_TEST_ACCESS_TOKEN: z.string().min(1).optional(),
   /** Public key de Mercado Pago (cliente) - usada en frontend si es necesaria */
   MERCADO_PAGO_PUBLIC_KEY: z.string().optional(),
   /** Path público relativo para recibir notificaciones (webhook) */
   MERCADO_PAGO_WEBHOOK_PATH: z.string().default('/payments/webhook'),
   /** URL del frontend para redirecciones de pago */
   FRONTEND_URL: z.string().url().optional(),
+
+  // PayU Latam
+  /** API Key de PayU - obtenido desde el panel de desarrollador */
+  PAYU_API_KEY: z.string().min(1).optional(),
+  /** API Login de PayU - obtenido desde el panel de desarrollador */
+  PAYU_API_LOGIN: z.string().min(1).optional(),
+  /** ID del comercio en PayU */
+  PAYU_MERCHANT_ID: z.string().min(1).optional(),
+  /** ID de la cuenta de PayU para Colombia (u otro país) */
+  PAYU_ACCOUNT_ID: z.string().min(1).optional(),
+  /** URL de la API de PayU (sandbox o producción) */
+  PAYU_SANDBOX_URL: z.string().url().default('https://sandbox.api.payulatam.com/payments-api/4.0/service.cgi'),
+  /** Modo de prueba para PayU (true en desarrollo) */
+  PAYU_TEST: z.coerce.boolean().default(true),
 })
 
 /**
@@ -126,10 +142,16 @@ export const {
   APP_REDIRECT_URL,
   POST_LOGOUT_REDIRECT_URL,
   API_URL,
-  CSRF_COOKIE
-  ,
+  CSRF_COOKIE,
   MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_TEST_ACCESS_TOKEN,
   MERCADO_PAGO_PUBLIC_KEY,
   MERCADO_PAGO_WEBHOOK_PATH,
-  FRONTEND_URL
+  FRONTEND_URL,
+  PAYU_API_KEY,
+  PAYU_API_LOGIN,
+  PAYU_MERCHANT_ID,
+  PAYU_ACCOUNT_ID,
+  PAYU_SANDBOX_URL,
+  PAYU_TEST,
 } = env

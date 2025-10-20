@@ -35,21 +35,34 @@
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as orderService from '../services/order.service.js'
+import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 
 const orderRoutes = new OpenAPIHono()
 
+// Aplicar middleware para convertir cookie a Authorization header
+orderRoutes.use('*', cookieToAuthHeader)
+
+// Helper: Extrae token desde Authorization header
+function getTokenFromRequest(c: any): string | undefined {
+  const authHeader = c.req.header('Authorization')
+  return authHeader ? authHeader.replace('Bearer ', '') : undefined
+}
+
 // Schemas
+const ProductSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  price: z.number().positive(),
+  image_url: z.string().url().optional()
+})
+
 const OrderItem = z.object({
   id: z.string().uuid(),
   order_id: z.string().uuid(),
-  product_id: z.string().uuid(),
+  product_id: z.number(),
   quantity: z.number().int().min(1),
   price: z.number().positive(),
-  product: z.object({
-    id: z.string().uuid(),
-    name: z.string(),
-    image_url: z.string().url().optional()
-  }).optional()
+  product: ProductSummary.optional()
 })
 
 const Order = z.object({
@@ -126,7 +139,8 @@ orderRoutes.openapi(getOrdersRoute, async (c) => {
       }, 401)
     }
 
-    const orders = await orderService.getUserOrders(userId)
+    const token = getTokenFromRequest(c)
+    const orders = await orderService.getUserOrders(userId, token)
 
     return c.json({
       success: true,
@@ -181,7 +195,8 @@ orderRoutes.openapi(getOrderRoute, async (c) => {
       }, 401)
     }
 
-    const order = await orderService.getOrderById(userId, id)
+    const token = getTokenFromRequest(c)
+    const order = await orderService.getOrderById(userId, id, token)
 
     if (!order) {
       return c.json({
@@ -245,10 +260,11 @@ orderRoutes.openapi(createOrderRoute, async (c) => {
       }, 401)
     }
 
+    const token = getTokenFromRequest(c)
     const order = await orderService.createOrder(userId, {
       shippingAddress,
       paymentMethod
-    })
+    }, token)
 
     return c.json({
       success: true,

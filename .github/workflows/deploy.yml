@@ -1,0 +1,33 @@
+name: Trigger deploy to Koyeb
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - trigger-ci
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: trigger-ci
+
+      - name: Fetch all branches
+        run: git fetch --all
+
+      - name: Set up Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Push to deploy branch
+        run: |
+          git checkout deploy
+          git merge --no-ff trigger-ci -m "CI: merge trigger-ci to deploy"
+          git push origin deploy

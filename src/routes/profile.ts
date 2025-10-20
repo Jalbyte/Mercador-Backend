@@ -31,8 +31,21 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as userService from '../services/user.service.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
+import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 
 export const profileRoutes = new OpenAPIHono()
+
+// Aplicar middleware para convertir cookie a Authorization header
+profileRoutes.use('*', cookieToAuthHeader)
+
+// Aplicar middleware de autenticación a todas las rutas de perfil
+profileRoutes.use('*', authMiddleware)
+
+// Helper: Extrae token desde Authorization header
+function getTokenFromRequest(c: any): string | undefined {
+  const authHeader = c.req.header('Authorization')
+  return authHeader ? authHeader.replace('Bearer ', '') : undefined
+}
 
 // Schema para actualizar perfil
 export const UpdateProfileSchema = z
@@ -140,11 +153,9 @@ const updateProfileRoute = createRoute({
     summary: "Actualizar perfil de usuario"
 })
 
-// Aplicar middleware de autenticación a todas las rutas de perfil
-profileRoutes.use('*', authMiddleware)
-
 profileRoutes.openapi(updateProfileRoute, async (c) => {
     const userId = c.get('userId')
+    const token = getTokenFromRequest(c)
 
     if (!userId) {
         return c.json({ success: false, error: 'No autorizado' }, 401)
@@ -165,7 +176,7 @@ profileRoutes.openapi(updateProfileRoute, async (c) => {
             full_name,
             country,
             image_file
-        })
+        }, token)
 
     return c.json({ 
       success: true, 

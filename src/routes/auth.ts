@@ -43,7 +43,8 @@ import { issueCsrfCookie } from '../middlewares/csrf.js'
 // Renombrado para mayor claridad, asumiendo que user.service.js exporta las funciones de auth.ts
 import * as userService from '../services/user.service.js'
 import { clearCookie, clearSessionCookie } from '../services/user.service.js'
-import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js';
+import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
+import { authMiddleware } from '../middlewares/authMiddleware.js'
 
 const authRoutes = new OpenAPIHono()
 
@@ -376,11 +377,22 @@ const updatePasswordRoute = createRoute({
   },
 });
 
+// Aplica los middlewares para validar la sesión
+authRoutes.use('/password/update', cookieToAuthHeader);
+authRoutes.use('/password/update', authMiddleware);
+
 authRoutes.openapi(updatePasswordRoute, async (c) => {
   try {
-    // Asume que un middleware ya verificó la sesión y el usuario está autenticado
+    // El authMiddleware ya validó el token y puso userId en el contexto
+    const userId = c.get('userId') as string;
+    const token = getTokenFromRequest(c);
+    
+    if (!userId || !token) {
+      return c.json({ success: false, error: 'No autenticado' }, 401);
+    }
+    
     const { newPassword } = c.req.valid('json');
-    await userService.updatePassword(newPassword);
+    await userService.updatePassword(token, newPassword);
     return c.json({ success: true, message: 'Tu contraseña ha sido actualizada.' }, 200);
   } catch (err) {
     return c.json({ success: false, error: (err as Error).message }, 400);
@@ -402,29 +414,25 @@ const meRoute = createRoute({
 
 // Aplica el middleware que copia la cookie a Authorization antes del authMiddleware
 authRoutes.use('/me', cookieToAuthHeader);
+authRoutes.use('/me', authMiddleware);
+
 authRoutes.openapi(meRoute, async (c) => {
   try {
-    // Se asume que un middleware previo ha validado el token y ha puesto el 'userId' en el contexto
-    let userId = c.get('userId') as string | undefined;
-    let token: string | undefined;
+    // El authMiddleware ya validó el token y puso userId en el contexto
+    const userId = c.get('userId') as string;
+    
     if (!userId) {
-      // Fallback: intentar obtener token desde header o cookie y validar con Supabase
-  token = getTokenFromRequest(c)
-  if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
-
-      const { data, error } = await userService.getUserByAccessToken(token)
-      if (error || !data?.user) return c.json({ success: false, error: 'No autenticado' }, 401)
-      userId = data.user.id
-      c.set('userId', userId)
-    } else {
-      // Extract token for the query
-  token = getTokenFromRequest(c)
+      return c.json({ success: false, error: 'No autenticado' }, 401);
     }
+    
+    // Extraer token para la consulta autenticada
+    const token = getTokenFromRequest(c);
+    
     const userProfile = await userService.getUserById(userId, token);
     return c.json({ success: true, data: userProfile });
   } catch (err) {
     console.error('Error fetching user profile:', err);
-    return c.json({ success: false, error: 'No se pudo obtener el perfil del usuario' + err }, 401);
+    return c.json({ success: false, error: 'No se pudo obtener el perfil del usuario' }, 401);
   }
 });
 
