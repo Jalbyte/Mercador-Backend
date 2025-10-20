@@ -1,5 +1,8 @@
 name: Trigger deploy to Koyeb
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
