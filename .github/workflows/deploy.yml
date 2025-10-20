@@ -11,6 +11,12 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: trigger-ci
+
+      - name: Fetch all branches
+        run: git fetch --all
 
       - name: Set up Git
         run: |
