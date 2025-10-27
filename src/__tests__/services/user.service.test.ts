@@ -18,6 +18,20 @@ describe('User Service', () => {
   beforeEach(() => {
     clearMockRedis()
     vi.clearAllMocks()
+    
+    // Reset the from() mock to return "no profile found" by default
+    // This prevents false positives in deleted account checks
+    vi.mocked(mockSupabaseClient.from).mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: 'PGRST116', message: 'No rows found' },
+      }),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+    } as any)
   })
 
   describe('signupWithEmail', () => {
@@ -112,6 +126,16 @@ describe('User Service', () => {
     })
 
     it('should handle MFA requirement', async () => {
+      // Mock profile check to return active account
+      vi.mocked(mockSupabaseClient.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: { is_deleted: false },
+          error: null,
+        }),
+      } as any)
+
       // Mock MFA enabled user
       vi.mocked(mockSupabaseClient.auth.mfa.getAuthenticatorAssuranceLevel).mockResolvedValue({
         data: { currentLevel: 'aal1', nextLevel: 'aal2' },
@@ -176,6 +200,16 @@ describe('User Service', () => {
 
   describe('getUserByAccessToken', () => {
     it('should get user by access token', async () => {
+      // Mock profile check to return active account
+      vi.mocked(mockSupabaseClient.from).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: { is_deleted: false },
+          error: null,
+        }),
+      } as any)
+
       const result = await getUserByAccessToken('test-access-token')
 
       expect(result.data).toBeDefined()

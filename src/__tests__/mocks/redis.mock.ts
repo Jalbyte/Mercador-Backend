@@ -1,82 +1,96 @@
-/**
- * Redis client mocks for testing
- */
 import { vi } from 'vitest'
 
-const mockRedisData = new Map<string, { value: string; expiry?: number }>()
+// In-memory store for Redis mock
+const mockStore = new Map()
 
+// Mock Redis client with event emitter support
 export const mockRedisClient = {
-  get: vi.fn(async (key: string) => {
-    const item = mockRedisData.get(key)
-    if (!item) return null
-    if (item.expiry && item.expiry < Date.now()) {
-      mockRedisData.delete(key)
-      return null
-    }
-    return item.value
-  }),
+  // Event emitter methods (must return 'mockRedisClient' for chaining)
+  on: vi.fn(function(event, handler) { return mockRedisClient }),
+  once: vi.fn(function(event, handler) { return mockRedisClient }),
+  off: vi.fn(function(event, handler) { return mockRedisClient }),
+  emit: vi.fn((event, ...args) => true),
+  removeListener: vi.fn(function(event, handler) { return mockRedisClient }),
+  removeAllListeners: vi.fn(function(event) { return mockRedisClient }),
   
-  set: vi.fn(async (key: string, value: string, options?: { EX?: number }) => {
-    const expiry = options?.EX ? Date.now() + options.EX * 1000 : undefined
-    mockRedisData.set(key, { value, expiry })
-    return 'OK'
-  }),
-  
-  setEx: vi.fn(async (key: string, seconds: number, value: string) => {
-    const expiry = Date.now() + seconds * 1000
-    mockRedisData.set(key, { value, expiry })
-    return 'OK'
-  }),
-  
-  del: vi.fn(async (key: string) => {
-    mockRedisData.delete(key)
-    return 1
-  }),
-  
-  exists: vi.fn(async (key: string) => {
-    return mockRedisData.has(key) ? 1 : 0
-  }),
-  
-  expire: vi.fn(async (key: string, seconds: number) => {
-    const item = mockRedisData.get(key)
-    if (!item) return 0
-    item.expiry = Date.now() + seconds * 1000
-    return 1
-  }),
-  
-  ttl: vi.fn(async (key: string) => {
-    const item = mockRedisData.get(key)
-    if (!item) return -2
-    if (!item.expiry) return -1
-    const ttl = Math.ceil((item.expiry - Date.now()) / 1000)
-    return ttl > 0 ? ttl : -2
-  }),
-  
-  keys: vi.fn(async (pattern: string) => {
-    return Array.from(mockRedisData.keys()).filter((key) =>
-      key.includes(pattern.replace('*', ''))
-    )
-  }),
-  
-  flushAll: vi.fn(async () => {
-    mockRedisData.clear()
-    return 'OK'
-  }),
-  
-  connect: vi.fn(async () => undefined),
-  disconnect: vi.fn(async () => undefined),
-  quit: vi.fn(async () => 'OK'),
+  // Connection methods
+  connect: vi.fn().mockResolvedValue(undefined),
+  quit: vi.fn().mockResolvedValue(undefined),
+  disconnect: vi.fn().mockResolvedValue(undefined),
   isOpen: true,
   isReady: true,
+  
+  // Redis operations
+  get: vi.fn((key) => Promise.resolve(mockStore.get(key) ?? null)),
+  set: vi.fn((key, value, options) => {
+    mockStore.set(key, value)
+    return Promise.resolve('OK')
+  }),
+  del: vi.fn((key) => {
+    const existed = mockStore.has(key)
+    mockStore.delete(key)
+    return Promise.resolve(existed ? 1 : 0)
+  }),
+  exists: vi.fn((key) => Promise.resolve(mockStore.has(key) ? 1 : 0)),
+  expire: vi.fn().mockResolvedValue(1),
+  ttl: vi.fn().mockResolvedValue(-1),
+  keys: vi.fn((pattern) => Promise.resolve(Array.from(mockStore.keys()))),
+  flushAll: vi.fn(() => {
+    mockStore.clear()
+    return Promise.resolve('OK')
+  }),
+  
+  // Additional Redis commands
+  incr: vi.fn((key) => {
+    const current = parseInt(mockStore.get(key) || '0', 10)
+    const newVal = current + 1
+    mockStore.set(key, String(newVal))
+    return Promise.resolve(newVal)
+  }),
+  decr: vi.fn((key) => {
+    const current = parseInt(mockStore.get(key) || '0', 10)
+    const newVal = current - 1
+    mockStore.set(key, String(newVal))
+    return Promise.resolve(newVal)
+  }),
+  
+  // Pub/Sub
+  publish: vi.fn().mockResolvedValue(0),
+  subscribe: vi.fn().mockResolvedValue(undefined),
+  unsubscribe: vi.fn().mockResolvedValue(undefined),
 }
 
-// Helper to clear mock data between tests
-export const clearMockRedis = () => {
-  mockRedisData.clear()
-  vi.clearAllMocks()
+// Helper to clear the mock store
+export function clearMockRedis() {
+  mockStore.clear()
+  // Reset all mock function call history
+  Object.values(mockRedisClient).forEach(value => {
+    if (typeof value === 'function' && 'mockClear' in value) {
+      value.mockClear()
+    }
+  })
 }
 
-// Mock Redis module
+// Mock the redis module - mockRedisClient must happen at module scope
 vi.mock('redis', () => ({
   createClient: vi.fn(() => mockRedisClient),
 }))
+
+// Mock the Upstash Redis module (if used)
+vi.mock('@upstash/redis', () => ({
+  Redis: vi.fn().mockImplementation(() => ({
+    get: vi.fn((key) => Promise.resolve(mockStore.get(key) ?? null)),
+    set: vi.fn((key, value, options) => {
+      mockStore.set(key, value)
+      return Promise.resolve('OK')
+    }),
+    del: vi.fn((key) => {
+      const existed = mockStore.has(key)
+      mockStore.delete(key)
+      return Promise.resolve(existed ? 1 : 0)
+    }),
+    exists: vi.fn((key) => Promise.resolve(mockStore.has(key) ? 1 : 0)),
+  })),
+}))
+
+export default mockRedisClient
