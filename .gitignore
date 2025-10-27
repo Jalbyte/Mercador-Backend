@@ -28,3 +28,6 @@ lerna-debug.log*
 # misc
 .DS_Store
 env
+
+# scripts
+scripts/seed-products.js

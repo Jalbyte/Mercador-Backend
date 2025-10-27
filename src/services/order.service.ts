@@ -104,7 +104,7 @@ export async function getUserOrders(userId: string, accessToken?: string): Promi
   return orders || []
 }
 
-export async function getOrderById(userId: string, orderId: string, accessToken?: string): Promise<Order | null> {
+export async function getOrderById(userId: string, orderId: number, accessToken?: string): Promise<Order | null> {
   // Usar cliente autenticado si se proporciona token, sino usar admin
   const client = accessToken 
     ? createSupabaseClient(accessToken) 
@@ -229,7 +229,7 @@ export async function createOrder(userId: string, orderData: CreateOrderData, ac
   return await getOrderById(userId, order.id, accessToken) as Order
 }
 
-export async function updateOrderStatus(orderId: string, status: Order['status'], accessToken?: string): Promise<Order> {
+export async function updateOrderStatus(orderId: number, status: Order['status'], accessToken?: string): Promise<Order> {
   // Usar cliente autenticado si se proporciona token, sino usar admin
   const client = accessToken 
     ? createSupabaseClient(accessToken) 

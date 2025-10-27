@@ -46,15 +46,15 @@ function getTokenFromRequest(c: any): string | undefined {
 
 // Schemas
 const ProductSummary = z.object({
-  id: z.string(),
+  id: z.number(),
   name: z.string(),
-  price: z.number().positive(),
-  image_url: z.string().url().optional()
+  price: z.number().positive().optional(),
+  image_url: z.string().optional().nullable()
 })
 
 const OrderItem = z.object({
-  id: z.string().uuid(),
-  order_id: z.string().uuid(),
+  id: z.number(),
+  order_id: z.number().optional(),
   product_id: z.number(),
   quantity: z.number().int().min(1),
   price: z.number().positive(),
@@ -62,15 +62,16 @@ const OrderItem = z.object({
 })
 
 const Order = z.object({
-  id: z.string().uuid(),
-  user_id: z.string().uuid(),
+  id: z.number(),
+  user_id: z.string().uuid().optional(),
   status: z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled']),
-  total_amount: z.number().positive(),
-  shipping_address: z.any(),
-  payment_method: z.string(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  items: z.array(OrderItem).optional()
+  total_amount: z.number(),
+  shipping_address: z.any().optional(),
+  payment_method: z.string().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+  items: z.array(OrderItem).optional(),
+  order_items: z.array(OrderItem).optional()
 })
 
 const CreateOrderData = z.object({
@@ -155,7 +156,7 @@ const getOrderRoute = createRoute({
   path: '/:id',
   request: {
     params: z.object({
-      id: z.string().uuid()
+      id: z.string().regex(/^\d+$/).transform(Number)
     })
   },
   responses: {
@@ -279,7 +280,7 @@ const updateOrderStatusRoute = createRoute({
   path: '/:id/status',
   request: {
     params: z.object({
-      id: z.string().uuid()
+      id: z.string().regex(/^\d+$/).transform(Number)
     }),
     body: {
       content: {

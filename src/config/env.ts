@@ -72,31 +72,21 @@ export const envSchema = z.object({
   // Logging
   /** Nivel de logging de la aplicación */
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  // Mercado Pago
-  /** Token de acceso de Mercado Pago (servidor) - usado para crear preferencias */
-  MERCADO_PAGO_ACCESS_TOKEN: z.string().min(1).optional(),
-  /** Token de prueba de Mercado Pago (sandbox) - usado en desarrollo */
-  MERCADO_PAGO_TEST_ACCESS_TOKEN: z.string().min(1).optional(),
-  /** Public key de Mercado Pago (cliente) - usada en frontend si es necesaria */
-  MERCADO_PAGO_PUBLIC_KEY: z.string().optional(),
-  /** Path público relativo para recibir notificaciones (webhook) */
-  MERCADO_PAGO_WEBHOOK_PATH: z.string().default('/payments/webhook'),
+  // Frontend URL
   /** URL del frontend para redirecciones de pago */
   FRONTEND_URL: z.string().url().optional(),
 
-  // PayU Latam
-  /** API Key de PayU - obtenido desde el panel de desarrollador */
-  PAYU_API_KEY: z.string().min(1).optional(),
-  /** API Login de PayU - obtenido desde el panel de desarrollador */
-  PAYU_API_LOGIN: z.string().min(1).optional(),
-  /** ID del comercio en PayU */
-  PAYU_MERCHANT_ID: z.string().min(1).optional(),
-  /** ID de la cuenta de PayU para Colombia (u otro país) */
-  PAYU_ACCOUNT_ID: z.string().min(1).optional(),
-  /** URL de la API de PayU (sandbox o producción) */
-  PAYU_SANDBOX_URL: z.string().url().default('https://sandbox.api.payulatam.com/payments-api/4.0/service.cgi'),
-  /** Modo de prueba para PayU (true en desarrollo) */
-  PAYU_TEST: z.coerce.boolean().default(true),
+  // Wompi
+  /** Public Key de Wompi - usada en el widget del frontend */
+  WOMPI_PUBLIC_KEY: z.string().min(1).optional(),
+  /** Private Key de Wompi - usada para crear transaction intents desde el backend */
+  WOMPI_PRIVATE_KEY: z.string().min(1).optional(),
+  /** URL de la API de Wompi (sandbox o producción) */
+  WOMPI_API_URL: z.string().url().default('https://sandbox.wompi.co/v1'),
+  /** URL de redirección después del pago exitoso */
+  WOMPI_REDIRECT_URL: z.string().url().optional(),
+  /** Secret para validar firma de webhooks de Wompi */
+  WOMPI_EVENTS_SECRET: z.string().min(1).optional(),
 })
 
 /**
@@ -143,15 +133,10 @@ export const {
   POST_LOGOUT_REDIRECT_URL,
   API_URL,
   CSRF_COOKIE,
-  MERCADO_PAGO_ACCESS_TOKEN,
-  MERCADO_PAGO_TEST_ACCESS_TOKEN,
-  MERCADO_PAGO_PUBLIC_KEY,
-  MERCADO_PAGO_WEBHOOK_PATH,
   FRONTEND_URL,
-  PAYU_API_KEY,
-  PAYU_API_LOGIN,
-  PAYU_MERCHANT_ID,
-  PAYU_ACCOUNT_ID,
-  PAYU_SANDBOX_URL,
-  PAYU_TEST,
+  WOMPI_PUBLIC_KEY,
+  WOMPI_PRIVATE_KEY,
+  WOMPI_API_URL,
+  WOMPI_REDIRECT_URL,
+  WOMPI_EVENTS_SECRET,
 } = env
