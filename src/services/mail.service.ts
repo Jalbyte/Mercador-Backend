@@ -102,10 +102,21 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
   }
 
   try {
-    await mg.messages.create(MAILGUN_DOMAIN, message)
-    console.log('✉️ Order email sent to', to)
+    const result = await mg.messages.create(MAILGUN_DOMAIN, message)
+    console.log('✉️ Order email sent successfully!')
+    console.log('  📧 To:', to)
+    console.log('  📝 Subject:', subject)
+    console.log('  🆔 Mailgun Message ID:', result.id)
+    console.log('  📊 Status:', result.status || 'queued')
+    console.log('  🔗 Check logs at: https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/logs')
+    return result
   } catch (err: any) {
-    console.error('Failed to send order email:', (err && err.message) || err)
+    console.error('❌ Failed to send order email!')
+    console.error('  Error:', (err && err.message) || err)
+    console.error('  Details:', JSON.stringify(err, null, 2))
+    console.error('  Domain:', MAILGUN_DOMAIN)
+    console.error('  From:', message.from)
+    console.error('  To:', to)
     throw err
   }
 }
