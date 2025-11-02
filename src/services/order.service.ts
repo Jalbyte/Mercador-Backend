@@ -45,6 +45,20 @@ import { supabase } from '../config/supabase.js'
 import { supabaseAdmin } from '../config/supabase.js'
 import { createSupabaseClient } from './user.service.js'
 
+// Helper: returns current timestamp in local time with timezone offset
+// Example output: 2025-10-27T12:34:56-05:00
+function nowWithLocalOffset(): string {
+  const d = new Date()
+  const tzOffsetMin = d.getTimezoneOffset() // minutes behind UTC (e.g. 300)
+  // local ISO without trailing Z
+  const localISO = new Date(d.getTime() - tzOffsetMin * 60000).toISOString().slice(0, -1)
+  const sign = tzOffsetMin > 0 ? '-' : '+'
+  const abs = Math.abs(tzOffsetMin)
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0')
+  const mm = String(abs % 60).padStart(2, '0')
+  return `${localISO}${sign}${hh}:${mm}`
+}
+
 export interface Order {
   id: string
   user_id: string
@@ -189,8 +203,8 @@ export async function createOrder(userId: string, orderData: CreateOrderData, ac
       total_amount: totalAmount,
       shipping_address: orderData.shippingAddress,
       payment_method: orderData.paymentMethod,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_at: nowWithLocalOffset(),
+      updated_at: nowWithLocalOffset()
     })
     .select()
     .single()
@@ -239,7 +253,7 @@ export async function updateOrderStatus(orderId: number, status: Order['status']
     .from('orders')
     .update({
       status,
-      updated_at: new Date().toISOString()
+  updated_at: nowWithLocalOffset()
     })
     .eq('id', orderId)
     .select(`
@@ -330,7 +344,7 @@ export async function updateOrderStatusWithPayment(
     .from('orders')
     .update({
       status,
-      updated_at: new Date().toISOString(),
+      updated_at: nowWithLocalOffset(),
     })
     .eq('id', orderId)
     .select()
@@ -520,7 +534,7 @@ export async function logOrderError(
         order_id: orderId,
         error_type: errorType,
         error_message: errorMessage,
-        created_at: new Date().toISOString()
+  created_at: nowWithLocalOffset()
       })
 
     if (error) {

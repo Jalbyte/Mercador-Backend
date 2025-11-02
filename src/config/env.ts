@@ -87,6 +87,14 @@ export const envSchema = z.object({
   WOMPI_REDIRECT_URL: z.string().url().optional(),
   /** Secret para validar firma de webhooks de Wompi */
   WOMPI_EVENTS_SECRET: z.string().min(1).optional(),
+  
+  // Email & Reports
+  /** API Key de Mailgun para envío de emails */
+  MAILGUN_API_KEY: z.string().min(1),
+  /** Dominio de Mailgun configurado (ej: auth.mercador.app) */
+  MAILGUN_DOMAIN: z.string().min(1).default('auth.mercador.app'),
+  /** Habilitar adjunto de PDF en emails de orden (true/false) */
+  ENABLE_PDF_ATTACH: z.coerce.boolean().default(false)
 })
 
 /**
@@ -139,4 +147,7 @@ export const {
   WOMPI_API_URL,
   WOMPI_REDIRECT_URL,
   WOMPI_EVENTS_SECRET,
+  MAILGUN_API_KEY,
+  MAILGUN_DOMAIN,
+  ENABLE_PDF_ATTACH,
 } = env

@@ -7,7 +7,7 @@
  * @since 2024
  */
 
-import { WOMPI_API_URL, WOMPI_PRIVATE_KEY, WOMPI_EVENTS_SECRET, WOMPI_REDIRECT_URL, API_URL } from '../config/env.js'
+import { WOMPI_API_URL, WOMPI_PRIVATE_KEY, WOMPI_EVENTS_SECRET, WOMPI_REDIRECT_URL, API_URL, FRONTEND_URL, ENABLE_PDF_ATTACH } from '../config/env.js'
 import crypto from 'crypto'
 
 /**
@@ -367,21 +367,62 @@ export class WompiService {
 
     try {
       // Importar dinámicamente para evitar dependencias circulares
-      const { updateOrderStatusWithPayment } = await import('./order.service.js')
+  const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
+  const { sendOrderEmail } = await import('./mail.service.js')
+  const { assignKeysToUser } = await import('./product_key.service.js')
 
       // Aquí implementa tu lógica de negocio según el estado de la transacción
       switch (transaction.status) {
         case 'APPROVED':
           console.log('✅ Pago aprobado para orden:', orderId)
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
-          // TODO: Enviar email de confirmación al cliente
+          // Intentar asignar claves si el pedido tiene items con licencias
+          try {
+            const userId = await getOrderUserId(orderId)
+            const order = userId ? await getOrderById(userId, Number(orderId)) : null
+            const assignedSummary: Record<string, number> = {}
+            if (order && Array.isArray(order.items)) {
+              for (const item of order.items) {
+                try {
+                  const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
+                  assignedSummary[String(item.product_id)] = assigned.length
+                } catch (e) {
+                  console.warn('Error assigning keys for product', item.product_id, e)
+                }
+              }
+            }
+
+            const frontendTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+            await sendOrderEmail({
+              to: transaction.customer_email,
+              subject: `Orden ${reference} - Pago confirmado`,
+              templatePath: frontendTemplateUrl,
+              templateQuery: { reference, status: 'confirmed', assigned: JSON.stringify(assignedSummary) },
+              attachPdf: ENABLE_PDF_ATTACH,
+              pdfFilename: `order-${orderId}.pdf`
+            })
+          } catch (err) {
+            console.warn('No se pudo asignar claves o enviar email de confirmación:', err)
+          }
           // TODO: Liberar productos del inventario
           break
 
         case 'DECLINED':
           console.log('❌ Pago rechazado para orden:', orderId)
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
-          // TODO: Notificar al cliente del rechazo
+          // Notificar al cliente del rechazo
+          try {
+            const frontendTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+            await sendOrderEmail({
+              to: transaction.customer_email,
+              subject: `Orden ${reference} - Pago rechazado`,
+              templatePath: frontendTemplateUrl,
+              templateQuery: { reference, status: 'cancelled' },
+              attachPdf: false
+            })
+          } catch (err) {
+            console.warn('No se pudo enviar email de rechazo:', err)
+          }
           // TODO: Restaurar items al carrito si es necesario
           break
 
@@ -399,7 +440,19 @@ export class WompiService {
         case 'ERROR':
           console.log('⚠️ Error en el pago para orden:', orderId)
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
-          // TODO: Registrar el error y notificar
+          // Registrar el error y notificar
+          try {
+            const frontendTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+            await sendOrderEmail({
+              to: transaction.customer_email,
+              subject: `Orden ${reference} - Error en el pago`,
+              templatePath: frontendTemplateUrl,
+              templateQuery: { reference, status: 'error' },
+              attachPdf: false
+            })
+          } catch (err) {
+            console.warn('No se pudo enviar email de error de pago:', err)
+          }
           break
 
         default:

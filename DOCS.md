@@ -555,13 +555,295 @@ export const logger = pino({
 - **System Resources**: CPU, memory, disk usage
 - **Business Metrics**: Users, orders, revenue
 
-## 📚 Referencias y Recursos
+## � Servicio de Email y Reportes
+
+### Integración con Mailgun
+
+El backend utiliza **Mailgun** para envío transaccional de emails con soporte para adjuntar reportes en PDF generados dinámicamente desde plantillas del frontend.
+
+#### Arquitectura del Servicio
+
+```typescript
+// services/mail.service.ts
+
+// 1. Fetch plantilla HTML desde el frontend
+async function fetchTemplateHtml(url: string): Promise<string>
+
+// 2. Generar PDF con Puppeteer (opcional)
+async function generatePdfFromHtml(html: string): Promise<Buffer>
+
+// 3. Enviar email con Mailgun
+async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
+```
+
+#### Flujo de Generación de Reportes
+
+```mermaid
+sequenceDiagram
+    participant Backend
+    participant Frontend
+    participant Puppeteer
+    participant Mailgun
+    participant Cliente
+
+    Backend->>Frontend: GET /api/email/order-status?reference=ORDER-123&status=confirmed
+    Frontend-->>Backend: HTML renderizado con datos
+    Backend->>Puppeteer: generatePdfFromHtml(html)
+    Puppeteer-->>Backend: Buffer del PDF
+    Backend->>Mailgun: sendEmail(to, subject, html, pdfAttachment)
+    Mailgun-->>Cliente: Email con PDF adjunto
+```
+
+#### Configuración
+
+##### Variables de Entorno Requeridas
+
+```bash
+# API Key de Mailgun
+MAILGUN_API_KEY=your-mailgun-api-key-here
+
+# Dominio verificado en Mailgun
+MAILGUN_DOMAIN=auth.mercador.app
+
+# URL del frontend para templates
+FRONTEND_URL=http://localhost:3000
+
+# Habilitar adjunto de PDF (requiere Puppeteer)
+ENABLE_PDF_ATTACH=true
+```
+
+##### Instalación de Dependencias
+
+```bash
+# Instalar dependencias de email
+npm install mailgun.js form-data
+
+# Instalar node-fetch (para templates)
+npm install node-fetch
+
+# Instalar Puppeteer (para PDFs)
+npm install puppeteer
+```
+
+⚠️ **Nota**: Puppeteer descarga Chromium (~170MB) en la primera instalación.
+
+#### Uso del Servicio
+
+##### Enviar Email Básico (sin PDF)
+
+```typescript
+import { sendOrderEmail } from './services/mail.service.js'
+
+await sendOrderEmail({
+  to: 'cliente@example.com',
+  subject: 'Confirmación de orden #123',
+  templatePath: 'http://localhost:3000/api/email/order-status',
+  templateQuery: {
+    reference: 'ORDER-123',
+    status: 'confirmed'
+  },
+  attachPdf: false
+})
+```
+
+##### Enviar Email con PDF Adjunto
+
+```typescript
+await sendOrderEmail({
+  to: 'cliente@example.com',
+  subject: 'Orden ORDER-123 - Pago confirmado',
+  templatePath: `${FRONTEND_URL}/api/email/order-status`,
+  templateQuery: {
+    reference: 'ORDER-123',
+    status: 'confirmed',
+    assigned: JSON.stringify({ '101': 2, '102': 1 }) // Claves asignadas
+  },
+  attachPdf: true,
+  pdfFilename: 'order-123.pdf'
+})
+```
+
+#### Integración con Webhooks de Wompi
+
+El servicio se invoca automáticamente en webhooks de pago:
+
+```typescript
+// wompi.service.ts
+case 'APPROVED':
+  await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
+  
+  // Asignar claves de productos
+  const assignedSummary = await assignKeysToUser(...)
+  
+  // Enviar email con PDF
+  await sendOrderEmail({
+    to: transaction.customer_email,
+    subject: `Orden ${reference} - Pago confirmado`,
+    templatePath: `${FRONTEND_URL}/api/email/order-status`,
+    templateQuery: { reference, status: 'confirmed', assigned: JSON.stringify(assignedSummary) },
+    attachPdf: ENABLE_PDF_ATTACH,
+    pdfFilename: `order-${orderId}.pdf`
+  })
+  break
+```
+
+#### Plantillas de Email en Frontend
+
+##### Crear endpoint en Next.js
+
+```typescript
+// app/api/email/order-status/route.ts
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const reference = searchParams.get('reference')
+  const status = searchParams.get('status')
+  const assigned = searchParams.get('assigned')
+  
+  // Renderizar HTML con datos
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; }
+          .header { background: #4F46E5; color: white; padding: 20px; }
+          .content { padding: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Orden ${reference}</h1>
+        </div>
+        <div class="content">
+          <p>Estado: ${status}</p>
+          ${assigned ? `<p>Claves asignadas: ${assigned}</p>` : ''}
+        </div>
+      </body>
+    </html>
+  `
+  
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html' }
+  })
+}
+```
+
+#### Optimizaciones de Producción
+
+##### 1. Pool de Browsers para Puppeteer
+
+```typescript
+// Para reducir latencia, mantener un pool de browsers
+import { BrowserPool } from 'puppeteer-pool'
+
+const pool = new BrowserPool({
+  max: 3,
+  min: 1,
+  launchOptions: {
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
+})
+```
+
+##### 2. Cache de Templates
+
+```typescript
+// Cache de HTML templates para evitar fetches repetidos
+const templateCache = new Map<string, { html: string, expires: number }>()
+
+async function fetchTemplateHtml(url: string): Promise<string> {
+  const cached = templateCache.get(url)
+  if (cached && cached.expires > Date.now()) {
+    return cached.html
+  }
+  
+  const html = await fetch(url).then(r => r.text())
+  templateCache.set(url, { html, expires: Date.now() + 60000 }) // 1min
+  return html
+}
+```
+
+##### 3. Fallback sin PDF
+
+```typescript
+// Si falla la generación de PDF, enviar solo HTML
+if (attachPdf) {
+  try {
+    const pdf = await generatePdfFromHtml(html)
+    message.attachment = [{ data: pdf, filename: pdfFilename }]
+  } catch (e) {
+    console.warn('Could not generate PDF, sending HTML only:', e)
+    // Email se envía sin adjunto
+  }
+}
+```
+
+#### Monitoreo y Logs
+
+##### Métricas a Observar
+
+- **Email delivery rate**: % de emails entregados exitosamente
+- **PDF generation time**: Tiempo promedio de generación de PDF
+- **Template fetch time**: Tiempo de obtención de template del frontend
+- **Mailgun API latency**: Latencia de envío vía Mailgun
+
+##### Logs Importantes
+
+```typescript
+// Logs en mail.service.ts
+console.log('✉️ Order email sent to', to)
+console.error('Failed to send order email:', err)
+console.warn('Could not generate PDF attachment:', e)
+```
+
+#### Troubleshooting
+
+##### Problema: Puppeteer no encuentra Chromium
+
+**Solución 1**: Reinstalar Puppeteer
+```bash
+npm uninstall puppeteer
+npm install puppeteer
+```
+
+**Solución 2**: Usar Chromium del sistema (Docker)
+```bash
+# En Dockerfile
+RUN apt-get update && apt-get install -y chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+```
+
+##### Problema: Timeout en generación de PDF
+
+**Causa**: Template del frontend tarda mucho en cargar o tiene scripts pesados
+
+**Solución**: Aumentar timeout de Puppeteer
+```typescript
+await page.setContent(html, {
+  waitUntil: 'networkidle0',
+  timeout: 30000 // 30s
+})
+```
+
+##### Problema: Mailgun responde 401 Unauthorized
+
+**Causa**: MAILGUN_API_KEY inválida o expirada
+
+**Solución**: Verificar credenciales
+```bash
+curl -v --user "api:YOUR_API_KEY" \
+  https://api.mailgun.net/v3/domains
+```
+
+## �📚 Referencias y Recursos
 
 ### Documentación Técnica
 - [Hono.js Documentation](https://hono.dev/)
 - [Supabase Documentation](https://supabase.com/docs)
 - [Redis Documentation](https://redis.io/documentation)
 - [Prometheus Documentation](https://prometheus.io/docs/)
+- [Mailgun Documentation](https://documentation.mailgun.com/)
+- [Puppeteer Documentation](https://pptr.dev/)
 
 ### Guías de Mejores Prácticas
 - [OWASP Security Guidelines](https://owasp.org/www-project-top-ten/)

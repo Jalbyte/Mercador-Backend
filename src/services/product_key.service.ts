@@ -103,3 +103,45 @@ export async function deleteProductKey(id: string): Promise<void> {
   const { error } = await (supabaseAdmin ?? supabase).from('product_keys').delete().eq('id', id)
   if (error) throw new Error(`Failed to delete product key: ${error.message}`)
 }
+
+/**
+ * Assign up to `count` available keys for a product to a given user.
+ * Returns the keys that were assigned.
+ */
+export async function assignKeysToUser(product_id: string, user_id: string, count: number): Promise<ProductKey[]> {
+  const db = supabaseAdmin ?? supabase
+
+  // Find available keys (not assigned and status available)
+  const { data: availableKeys, error: fetchError } = await db
+    .from('product_keys')
+    .select('*')
+    .eq('product_id', product_id)
+    .or('user_id.is.null,status.eq.available')
+    .limit(count)
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch available keys: ${fetchError.message}`)
+  }
+
+  if (!availableKeys || availableKeys.length === 0) return []
+
+  const assigned: ProductKey[] = []
+  for (const key of availableKeys) {
+    const { data: updated, error: updErr } = await db
+      .from('product_keys')
+      .update({ user_id, status: 'assigned', updated_at: new Date().toISOString() })
+      .eq('id', key.id)
+      .select()
+      .single()
+
+    if (updErr) {
+      console.warn('Failed to assign key', key.id, updErr)
+      continue
+    }
+
+    assigned.push(updated)
+    if (assigned.length >= count) break
+  }
+
+  return assigned
+}
