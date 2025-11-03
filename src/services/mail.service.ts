@@ -1,5 +1,6 @@
 import FormData from 'form-data'
 import path from 'path'
+import { Readable } from 'stream'
 import { MAILGUN_API_KEY, MAILGUN_DOMAIN, ENABLE_PDF_ATTACH } from '../config/env.js'
 
 // dynamic imports for heavy / optional dependencies
@@ -67,6 +68,16 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
   } finally {
     await browser.close()
   }
+}
+
+/**
+ * Convierte un Buffer a Readable Stream para Mailgun
+ */
+function bufferToStream(buffer: Buffer): Readable {
+  const readable = new Readable()
+  readable.push(buffer)
+  readable.push(null) // Indica el fin del stream
+  return readable
 }
 
 export interface CheckoutItem {
@@ -157,19 +168,21 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
   // Generate PDF from /email/invoice if requested
   if (attachPdf) {
     try {
-      // Change the URL to the invoice page for PDF generation
-      const invoiceUrl = emailUrl.toString().replace('/order-status', '/invoice')
-      console.log('📄 Generating PDF from invoice page:', invoiceUrl.substring(0, 80) + '...')
+      // Build invoice URL using the same query parameters
+      const invoiceUrl = new URL(emailUrl.toString().replace('/order-status', '/invoice'))
       
-      const invoiceHtml = await fetchTemplateHtml(invoiceUrl)
+      console.log('📄 Generando PDF de factura desde:', invoiceUrl.href.substring(0, 100) + '...')
+      
+      const invoiceHtml = await fetchTemplateHtml(invoiceUrl.toString())
       const pdf = await generatePdfFromHtml(invoiceHtml)
       
+      // Convertir Buffer a Stream para Mailgun
       allAttachments.push({
-        data: pdf,
         filename: pdfFilename || 'factura.pdf',
+        data: bufferToStream(pdf)
       })
       
-      console.log('✅ PDF de factura generado exitosamente')
+      console.log('✅ PDF de factura generado exitosamente (' + Math.round(pdf.length / 1024) + ' KB)')
     } catch (e: any) {
       console.warn('⚠️ No se pudo generar PDF de factura:', (e && e.message) || e)
     }
@@ -177,11 +190,18 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
 
   // Add custom attachments (like license keys TXT file)
   if (attachments && attachments.length > 0) {
-    allAttachments.push(...attachments.map(att => ({
-      data: att.data,
-      filename: att.filename,
-      contentType: att.contentType
-    })))
+    for (const att of attachments) {
+      // Convertir a Buffer si es string
+      const buffer = typeof att.data === 'string' 
+        ? Buffer.from(att.data, 'utf-8') 
+        : att.data
+      
+      // Convertir Buffer a Stream para Mailgun
+      allAttachments.push({
+        filename: att.filename,
+        data: bufferToStream(buffer)
+      })
+    }
   }
 
   // Add attachments to message if any
