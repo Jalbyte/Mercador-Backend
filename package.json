@@ -12,6 +12,8 @@
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "test:email": "tsx scripts/test-email-service.ts",
+    "test:checkout": "tsx src/scripts/test-checkout-email.ts",
+    "test:keys-email": "tsx src/scripts/test-keys-email.ts",
     "debug:mailgun": "tsx src/scripts/debug-mailgun.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",

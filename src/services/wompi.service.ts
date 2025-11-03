@@ -376,31 +376,138 @@ export class WompiService {
         case 'APPROVED':
           console.log('✅ Pago aprobado para orden:', orderId)
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
-          // Intentar asignar claves si el pedido tiene items con licencias
+          // Intentar asignar claves y enviar email con factura y claves
           try {
             const userId = await getOrderUserId(orderId)
             const order = userId ? await getOrderById(userId, Number(orderId)) : null
-            const assignedSummary: Record<string, number> = {}
-            if (order && Array.isArray(order.items)) {
+            
+            if (!order) {
+              console.warn('⚠️ No se encontró la orden:', orderId)
+              break
+            }
+
+            const assignedKeysDetails: Array<{ productId: string, productName: string, keys: string[] }> = []
+            let totalKeysCount = 0
+            
+            // Asignar claves para cada producto
+            if (Array.isArray(order.items)) {
               for (const item of order.items) {
                 try {
                   const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
-                  assignedSummary[String(item.product_id)] = assigned.length
+                  
+                  if (assigned.length > 0) {
+                    assignedKeysDetails.push({
+                      productId: String(item.product_id),
+                      productName: item.product?.name || `Producto #${item.product_id}`,
+                      keys: assigned.map(k => k.license_key)
+                    })
+                    totalKeysCount += assigned.length
+                  }
                 } catch (e) {
                   console.warn('Error assigning keys for product', item.product_id, e)
                 }
               }
             }
 
-            const frontendTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+            // Preparar archivos adjuntos
+            const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
+            
+            // 1. Generar archivo TXT con las claves (si hay claves)
+            if (assignedKeysDetails.length > 0) {
+              let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
+║                  CLAVES DE LICENCIA - MERCADOR                 ║
+║                                                                ║
+║  Orden: ${reference.padEnd(52)} ║
+║  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} ║
+╚════════════════════════════════════════════════════════════════╝\n\n`
+              
+              assignedKeysDetails.forEach((product) => {
+                keysFileContent += `\n${'='.repeat(64)}\n`
+                keysFileContent += `PRODUCTO: ${product.productName}\n`
+                keysFileContent += `ID: ${product.productId}\n`
+                keysFileContent += `CANTIDAD: ${product.keys.length} clave(s)\n`
+                keysFileContent += `${'='.repeat(64)}\n\n`
+                
+                product.keys.forEach((key, keyIdx) => {
+                  keysFileContent += `  ${keyIdx + 1}. ${key}\n`
+                })
+                keysFileContent += '\n'
+              })
+              
+              keysFileContent += `\n${'='.repeat(64)}\n`
+              keysFileContent += `IMPORTANTE:\n`
+              keysFileContent += `- Guarda este archivo en un lugar seguro\n`
+              keysFileContent += `- No compartas tus claves con nadie\n`
+              keysFileContent += `- Cada clave es única y solo puede usarse una vez\n`
+              keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
+              keysFileContent += `${'='.repeat(64)}\n`
+              
+              attachments.push({
+                data: Buffer.from(keysFileContent, 'utf-8'),
+                filename: `claves-orden-${orderId}.txt`,
+                contentType: 'text/plain; charset=utf-8'
+              })
+            }
+
+            // 2. Generar PDF de la factura (si está habilitado)
+            if (ENABLE_PDF_ATTACH && order.items && order.items.length > 0) {
+              try {
+                // Preparar datos de la factura
+                const invoiceItems = order.items.map(item => ({
+                  product_id: item.product_id,
+                  name: item.product?.name || `Producto #${item.product_id}`,
+                  quantity: item.quantity,
+                  price: item.price
+                }))
+
+                const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                const tax = 0 // Calcular IVA si es necesario
+                const total = subtotal + tax
+
+                // Construir URL de la factura
+                const invoiceUrl = new URL(`${FRONTEND_URL || 'http://localhost:3000'}/email/invoice`)
+                invoiceUrl.searchParams.set('orderId', orderId)
+                invoiceUrl.searchParams.set('reference', reference)
+                invoiceUrl.searchParams.set('customerName', transaction.customer_data?.legal_id || transaction.customer_email)
+                invoiceUrl.searchParams.set('customerEmail', transaction.customer_email)
+                invoiceUrl.searchParams.set('items', JSON.stringify(invoiceItems))
+                invoiceUrl.searchParams.set('subtotal', subtotal.toString())
+                invoiceUrl.searchParams.set('tax', tax.toString())
+                invoiceUrl.searchParams.set('total', total.toString())
+                invoiceUrl.searchParams.set('paymentMethod', 'Wompi')
+                invoiceUrl.searchParams.set('transactionId', transaction.id)
+                invoiceUrl.searchParams.set('date', new Date().toISOString())
+                invoiceUrl.searchParams.set('status', 'paid')
+
+                // Nota: el PDF se genera en mail.service.ts usando Puppeteer
+                console.log('📄 Factura PDF se generará desde:', invoiceUrl.toString().substring(0, 100) + '...')
+              } catch (e) {
+                console.warn('⚠️ Error preparando datos de factura:', e)
+              }
+            }
+
+            // 3. Enviar email con mensaje simple + adjuntos
+            const emailTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
             await sendOrderEmail({
               to: transaction.customer_email,
-              subject: `Orden ${reference} - Pago confirmado`,
-              templatePath: frontendTemplateUrl,
-              templateQuery: { reference, status: 'confirmed', assigned: JSON.stringify(assignedSummary) },
+              subject: `✅ Orden ${reference} - Pago Confirmado`,
+              templatePath: emailTemplateUrl,
+              templateQuery: { 
+                reference, 
+                status: 'confirmed',
+                keysCount: totalKeysCount.toString(),
+                orderId,
+                customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0]
+              },
               attachPdf: ENABLE_PDF_ATTACH,
-              pdfFilename: `order-${orderId}.pdf`
+              pdfFilename: `factura-${orderId}.pdf`,
+              attachments
             })
+            
+            console.log(`✅ Email enviado exitosamente`)
+            console.log(`   📧 Destinatario: ${transaction.customer_email}`)
+            console.log(`   🔑 Claves asignadas: ${totalKeysCount}`)
+            console.log(`   📎 Adjuntos: ${attachments.length} archivo(s) + ${ENABLE_PDF_ATTACH ? '1 PDF' : '0 PDF'}`)
           } catch (err) {
             console.warn('No se pudo asignar claves o enviar email de confirmación:', err)
           }

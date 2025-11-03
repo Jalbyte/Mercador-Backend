@@ -40,6 +40,11 @@ export interface SendOrderEmailOptions {
   templateQuery?: Record<string, string>
   attachPdf?: boolean
   pdfFilename?: string
+  attachments?: Array<{
+    data: Buffer | string
+    filename: string
+    contentType?: string
+  }>
 }
 
 async function fetchTemplateHtml(url: string): Promise<string> {
@@ -64,16 +69,80 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
   }
 }
 
-export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void> {
-  const { to, subject, templatePath, templateQuery, attachPdf, pdfFilename } = opts
+export interface CheckoutItem {
+  id: string
+  name: string
+  price: number
+  quantity: number
+}
 
-  // Build template URL
-  const url = new URL(templatePath)
-  if (templateQuery) {
-    for (const [k, v] of Object.entries(templateQuery)) url.searchParams.set(k, v)
+export interface SendCheckoutEmailOptions {
+  to: string
+  orderId: string
+  reference: string
+  items: CheckoutItem[]
+  total: number
+  customerName: string
+  customerEmail?: string
+  customerPhone?: string
+  paymentMethod?: string
+  status?: 'confirmed' | 'pending' | 'cancelled'
+  attachPdf?: boolean
+}
+
+export async function sendCheckoutEmail(opts: SendCheckoutEmailOptions): Promise<void> {
+  const {
+    to,
+    orderId,
+    reference,
+    items,
+    total,
+    customerName,
+    customerEmail,
+    customerPhone,
+    paymentMethod = 'Wompi',
+    status = 'confirmed',
+    attachPdf = false
+  } = opts
+
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
+  
+  const templateQuery = {
+    orderId,
+    reference,
+    items: JSON.stringify(items),
+    total: total.toString(),
+    customerName,
+    ...(customerEmail && { customerEmail }),
+    ...(customerPhone && { customerPhone }),
+    paymentMethod,
+    status,
+    transactionDate: new Date().toISOString()
   }
 
-  const html = await fetchTemplateHtml(url.toString())
+  await sendOrderEmail({
+    to,
+    subject: status === 'confirmed' 
+      ? `✅ Confirmación de compra - Orden ${reference}`
+      : `📋 Resumen de compra - Orden ${reference}`,
+    templatePath: `${FRONTEND_URL}/email/checkout`,
+    templateQuery,
+    attachPdf,
+    pdfFilename: `factura-${reference}.pdf`
+  })
+}
+
+export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void> {
+  const { to, subject, templatePath, templateQuery, attachPdf, pdfFilename, attachments } = opts
+
+  // Build email template URL (for the HTML body)
+  const emailUrl = new URL(templatePath)
+  if (templateQuery) {
+    for (const [k, v] of Object.entries(templateQuery)) emailUrl.searchParams.set(k, v)
+  }
+
+  // Fetch HTML for email body
+  const html = await fetchTemplateHtml(emailUrl.toString())
 
   const message: any = {
     from: `No Reply <noreply@auth.mercador.app>`,
@@ -82,19 +151,42 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
     html,
   }
 
-  // Attach PDF if requested
+  // Prepare attachments array
+  const allAttachments: Array<any> = []
+
+  // Generate PDF from /email/invoice if requested
   if (attachPdf) {
     try {
-      const pdf = await generatePdfFromHtml(html)
-      message.attachment = [
-        {
-          data: pdf,
-          filename: pdfFilename || 'order.pdf',
-        },
-      ]
+      // Change the URL to the invoice page for PDF generation
+      const invoiceUrl = emailUrl.toString().replace('/order-status', '/invoice')
+      console.log('📄 Generating PDF from invoice page:', invoiceUrl.substring(0, 80) + '...')
+      
+      const invoiceHtml = await fetchTemplateHtml(invoiceUrl)
+      const pdf = await generatePdfFromHtml(invoiceHtml)
+      
+      allAttachments.push({
+        data: pdf,
+        filename: pdfFilename || 'factura.pdf',
+      })
+      
+      console.log('✅ PDF de factura generado exitosamente')
     } catch (e: any) {
-      console.warn('Could not generate PDF attachment:', (e && e.message) || e)
+      console.warn('⚠️ No se pudo generar PDF de factura:', (e && e.message) || e)
     }
+  }
+
+  // Add custom attachments (like license keys TXT file)
+  if (attachments && attachments.length > 0) {
+    allAttachments.push(...attachments.map(att => ({
+      data: att.data,
+      filename: att.filename,
+      contentType: att.contentType
+    })))
+  }
+
+  // Add attachments to message if any
+  if (allAttachments.length > 0) {
+    message.attachment = allAttachments
   }
 
   if (!mg) {
@@ -123,4 +215,5 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
 
 export default {
   sendOrderEmail,
+  sendCheckoutEmail,
 }
