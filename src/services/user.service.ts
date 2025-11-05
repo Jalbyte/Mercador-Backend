@@ -200,26 +200,49 @@ export async function adminUpdateUser(adminId: string, userId: string, updateDat
  * @returns {Promise<{ success: boolean }>} Resultado
  */
 export async function adminDeleteUser(adminId: string, userId: string, accessToken?: string): Promise<{ success: boolean }> {
-  let client = supabase
-  if (accessToken) {
-    client = createSupabaseClient(accessToken)
-  }
+  // Use admin client when available to bypass RLS for admin operations
+  const client = supabaseAdmin ?? supabase
+  console.log('[user.service] adminDeleteUser starting', { adminId, userId, usingAdminClient: !!supabaseAdmin })
+
   // Verificar admin
   const { data: adminProfile, error: adminError } = await client
     .from('profiles')
     .select('role')
     .eq('id', adminId)
     .single()
-  if (adminError || !adminProfile) throw new Error('No autorizado')
-  if (adminProfile.role !== 'admin') throw new Error('No autorizado')
+
+  if (adminError || !adminProfile) {
+    console.error('[user.service] adminDeleteUser failed to verify admin', { adminId, adminError })
+    throw new Error('No autorizado')
+  }
+  if (adminProfile.role !== 'admin') {
+    console.error('[user.service] adminDeleteUser user is not admin', { adminId, role: adminProfile.role })
+    throw new Error('No autorizado')
+  }
 
   // Soft delete: marcar is_deleted=true (ajusta si tu tabla tiene otro campo)
-  const { error } = await client
-    .from('profiles')
-    .update({ is_deleted: true })
-    .eq('id', userId)
-  if (error) throw new Error('Error al eliminar usuario')
-  return { success: true }
+  try {
+    console.log('[user.service] adminDeleteUser performing update', { targetUserId: userId })
+    const { data, error } = await client
+      .from('profiles')
+      .update({ is_deleted: true })
+      .eq('id', userId)
+      .select()
+
+    if (error) {
+      console.error('[user.service] adminDeleteUser supabase error', { adminId, userId, error })
+      // Try to include error details if present
+      let details = ''
+      try { details = JSON.stringify(error) } catch (_) { details = String(error) }
+      throw new Error(`Error al eliminar usuario: ${details}`)
+    }
+
+    console.log('[user.service] adminDeleteUser success', { adminId, userId, updatedRows: Array.isArray(data) ? data.length : (data ? 1 : 0) })
+    return { success: true }
+  } catch (err: any) {
+    console.error('[user.service] adminDeleteUser unexpected error', { adminId, userId, err: err && (err.stack || err.message || err) })
+    throw new Error('Error al eliminar usuario')
+  }
 }
 
 /**
@@ -253,8 +276,10 @@ export async function loginWithEmail(email: string, password: string) {
   const verifiedFactors = factorsData?.all?.filter((f: Factor) => f.status === 'verified') || []
 
 
+
   // Obtener información adicional del perfil y verificar si la cuenta está eliminada
   let enrichedUser: any = { ...data.user }
+  let isDeleted = false;
   try {
     const { data: profile } = await client
       .from('profiles')
@@ -262,10 +287,7 @@ export async function loginWithEmail(email: string, password: string) {
       .eq('id', user.id)
       .single()
 
-    // Verificar si la cuenta está eliminada
-    if (profile?.is_deleted === true) {
-      throw new Error('This account has been deleted and cannot be accessed')
-    }
+    isDeleted = profile?.is_deleted === true;
 
     if (profile) {
       enrichedUser = {
@@ -278,12 +300,18 @@ export async function loginWithEmail(email: string, password: string) {
       }
     }
   } catch (err: any) {
-    // Si el error es por cuenta eliminada, propagarlo
-    if (err.message?.includes('deleted')) {
-      throw err
-    }
-    // Ignorar otros errores al obtener el perfil adicional
+    // Ignorar errores al obtener el perfil adicional
     console.error('Error fetching profile during login:', err)
+  }
+
+  // Si la cuenta está eliminada, devolver flag especial
+  if (isDeleted) {
+    return {
+      user: enrichedUser,
+      session: null,
+      mfaRequired: false,
+      accountDeleted: true,
+    }
   }
 
   // Si tiene MFA verificado pero el nivel actual es AAL1, requiere verificación adicional
@@ -725,6 +753,64 @@ export async function updateUserProfile(
     console.error('Failed to update profile', { userId, details })
     throw new Error(`Failed to update profile: ${details}`)
   }
+}
+
+
+// --- Métodos de Manejo de Cuenta (Soft Delete y Restaurar) ---
+
+/**
+ * Marca la cuenta del usuario como eliminada (soft delete, is_deleted=true)
+ * @param {string} userId - ID del usuario autenticado
+ * @param {string} [accessToken] - Token de acceso opcional
+ * @returns {Promise<{ success: boolean }>} Resultado
+ */
+export async function softDeleteUser(userId: string, accessToken?: string): Promise<{ success: boolean }> {
+  let client = supabase
+  if (accessToken) {
+    client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    })
+  }
+  try {
+    const primary = supabaseAdmin ?? client
+    const { error, data } = await primary
+      .from('profiles')
+      .update({ is_deleted: true })
+      .eq('id', userId)
+
+    if (error) {
+      console.error('[user.service] softDeleteUser supabase error', { userId, error })
+      throw new Error(`Error al eliminar la cuenta: ${error?.message || JSON.stringify(error)}`)
+    }
+
+    console.log('[user.service] softDeleteUser success', { userId, updated: !!data })
+    return { success: true }
+  } catch (err: any) {
+    console.error('[user.service] softDeleteUser unexpected error', { userId, err: err && (err.stack || err.message || err) })
+    throw err
+  }
+}
+
+/**
+ * Restaura la cuenta del usuario (is_deleted=false)
+ * @param {string} userId - ID del usuario autenticado
+ * @param {string} [accessToken] - Token de acceso opcional
+ * @returns {Promise<{ success: boolean }>} Resultado
+ */
+export async function restoreUser(userId: string, accessToken?: string): Promise<{ success: boolean }> {
+  let client = supabase
+  if (accessToken) {
+    client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    })
+  }
+  const primary = supabaseAdmin ?? client
+  const { error } = await primary
+    .from('profiles')
+    .update({ is_deleted: false })
+    .eq('id', userId)
+  if (error) throw new Error('Error al restaurar la cuenta')
+  return { success: true }
 }
 
 // --- Métodos de Manejo de Sesión ---

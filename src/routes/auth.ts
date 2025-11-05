@@ -43,6 +43,7 @@ import { issueCsrfCookie } from '../middlewares/csrf.js'
 // Renombrado para mayor claridad, asumiendo que user.service.js exporta las funciones de auth.ts
 import * as userService from '../services/user.service.js'
 import { clearCookie, clearSessionCookie } from '../services/user.service.js'
+import { supabase } from '../config/supabase.js'
 import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
 
@@ -102,6 +103,7 @@ const LoginSchema = z.object({
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*(),.?":{}|<>]).*$/,
       'La contraseña debe contener al menos una minúscula, una mayúscula y un carácter especial'),
+  restore: z.boolean().optional(),
 })
 
 const MagicLinkLoginSchema = z.object({
@@ -217,7 +219,29 @@ const loginRoute = createRoute({
 authRoutes.openapi(loginRoute, async (c) => {
   try {
     const body = c.req.valid('json');
+    // Si el frontend envía restore=true, intentar restaurar la cuenta antes de login
+    if (body.restore === true) {
+      // Buscar usuario por email
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', body.email)
+        .single();
+      if (userProfile?.id) {
+        await userService.restoreUser(userProfile.id);
+      }
+    }
+
     const result = await userService.loginWithEmail(body.email, body.password);
+
+    // Si la cuenta está eliminada, devolver flag especial
+    if (result.accountDeleted) {
+      return c.json({
+        success: false,
+        accountDeleted: true,
+        message: 'La cuenta está eliminada. ¿Desea restaurarla y continuar?',
+      }, 403);
+    }
 
     if (!result.session) throw new Error('No se pudo iniciar sesión');
 

@@ -130,9 +130,21 @@ adminUserRoutes.openapi(
     const userId = c.req.param('userId')
     if (!adminId || typeof adminId !== 'string' || !userId || typeof userId !== 'string') return c.json({ error: 'No autorizado' }, 401)
     try {
+      console.log(`[admin.users.delete] request received adminId=${adminId} targetUserId=${userId} tokenPresent=${!!token}`)
       const result = await userService.adminDeleteUser(adminId, userId, token ?? '')
+      console.log(`[admin.users.delete] delete result adminId=${adminId} targetUserId=${userId}:`, result)
       return c.json(result, 200)
     } catch (err: any) {
+      console.error(`[admin.users.delete] error deleting user adminId=${adminId} targetUserId=${userId}:`, err && (err.stack || err.message || err))
+      // If the service returned a Supabase error object, log its details
+      if (err && typeof err === 'object') {
+        try {
+          // @ts-ignore
+          if (err.error) console.error('[admin.users.delete] service error.detail:', JSON.stringify(err.error))
+        } catch (e) {
+          // ignore
+        }
+      }
       if (err.message === 'No autorizado') return c.json({ error: 'No autorizado' }, 401)
       return c.json({ error: err.message || 'Error' }, 500)
     }

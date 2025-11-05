@@ -32,6 +32,8 @@ type CachedUser = {
   email: string | null
   /** Rol del usuario (opcional, por defecto 'cliente') */
   role?: string
+  /** Indica si la cuenta está eliminada (soft delete) */
+  is_deleted?: boolean
 }
 
 /**
@@ -161,6 +163,10 @@ export async function authMiddleware(c: Context, next: Next) {
     // Try cache first
     const cached = await getCachedUser(token)
     if (cached) {
+      // Si el usuario está soft deleted, denegar acceso
+      if ((cached as any).is_deleted === true) {
+        return c.json({ success: false, error: 'Cuenta eliminada. Debe restaurar su cuenta para acceder.' }, 403)
+      }
       c.set('userId', cached.id)
       c.set('userEmail', cached.email ?? undefined)
       c.set('userRole', cached.role ?? 'cliente')
@@ -175,14 +181,30 @@ export async function authMiddleware(c: Context, next: Next) {
       return c.json({ success: false, error: 'Invalid or expired token' }, 401)
     }
 
-    // Cache user briefly (until token expiry)
+    // Consultar is_deleted en la base de datos
+    let isDeleted = false;
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_deleted')
+        .eq('id', data.user.id)
+        .single();
+      isDeleted = profile?.is_deleted === true;
+    } catch (e) {
+      // Si falla la consulta, por seguridad denegar acceso
+      return c.json({ success: false, error: 'No se pudo verificar el estado de la cuenta' }, 403);
+    }
+    // Cachear el estado de is_deleted junto con el usuario
     const ttl = getTokenTTLSeconds(token)
     await setCachedUser(token, {
       id: data.user.id,
       email: data.user.email ?? null,
-      role: data.user.user_metadata?.role ?? 'cliente'
+      role: data.user.user_metadata?.role ?? 'cliente',
+      is_deleted: isDeleted
     }, ttl)
-
+    if (isDeleted) {
+      return c.json({ success: false, error: 'Cuenta eliminada. Debe restaurar su cuenta para acceder.' }, 403)
+    }
     // Guardar datos en el contexto
     c.set('userId', data.user.id)
     c.set('userEmail', data.user.email)

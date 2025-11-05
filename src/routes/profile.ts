@@ -193,4 +193,100 @@ profileRoutes.openapi(updateProfileRoute, async (c) => {
   }
 )
 
+
+// --- Soft Delete de cuenta (usuario actual) ---
+profileRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/delete',
+    security: [{ Bearer: [] }],
+    responses: {
+      200: {
+        description: 'Cuenta eliminada (soft delete)',
+        content: {
+          'application/json': {
+            schema: z.object({ success: z.boolean() })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+      },
+      500: {
+        description: 'Error',
+        content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+      },
+    },
+    summary: 'Eliminar (soft) la cuenta del usuario autenticado',
+  }),
+  async (c) => {
+    const userId = c.get('userId')
+    const token = getTokenFromRequest(c)
+    if (!userId) return c.json({ error: 'No autorizado' }, 401)
+    try {
+      console.log(`[profile.delete] request received for userId=${userId} tokenPresent=${!!token}`)
+      const res = await userService.softDeleteUser(userId, token)
+      console.log(`[profile.delete] softDelete result for userId=${userId}:`, res)
+      // Invalidate server-side session and clear cookie so user is logged out
+      try {
+        await userService.signOut(token)
+        const clearCookie = userService.clearSessionCookie()
+        // Set-Cookie header to instruct browser to remove session cookie
+        c.header('Set-Cookie', clearCookie)
+      } catch (signOutErr) {
+        console.error(`[profile.delete] signOut error for userId=${userId}:`, signOutErr)
+        // proceed: even if signOut fails, we already marked account deleted
+      }
+
+      return c.json({ success: true }, 200)
+    } catch (err: any) {
+      console.error(`[profile.delete] error deleting account for userId=${userId}:`, err && (err.stack || err.message || err))
+      return c.json({ error: err.message || 'Error' }, 500)
+    }
+  }
+)
+
+// --- Restaurar cuenta (usuario actual) ---
+profileRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/restore',
+    security: [{ Bearer: [] }],
+    responses: {
+      200: {
+        description: 'Cuenta restaurada',
+        content: {
+          'application/json': {
+            schema: z.object({ success: z.boolean() })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+      },
+      500: {
+        description: 'Error',
+        content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+      },
+    },
+    summary: 'Restaurar la cuenta del usuario autenticado',
+  }),
+  async (c) => {
+    const userId = c.get('userId')
+    const token = getTokenFromRequest(c)
+    if (!userId) return c.json({ error: 'No autorizado' }, 401)
+    try {
+      console.log(`[profile.restore] request received for userId=${userId} tokenPresent=${!!token}`)
+      const res = await userService.restoreUser(userId, token)
+      console.log(`[profile.restore] restore result for userId=${userId}:`, res)
+      return c.json({ success: true }, 200)
+    } catch (err: any) {
+      console.error(`[profile.restore] error restoring account for userId=${userId}:`, err && (err.stack || err.message || err))
+      return c.json({ error: err.message || 'Error' }, 500)
+    }
+  }
+)
+
 export default profileRoutes
