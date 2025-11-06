@@ -27,7 +27,7 @@ jobs:
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env.local
           scp -i ~/.ssh/id_rsa .env.local \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/mercador/.env.local
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/mercador/.env
 
       - name: Run deployment script on EC2
         run: |
