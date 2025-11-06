@@ -53,6 +53,7 @@ import profileRoutes from './profile.js'
 // import paymentRoutes from './payments.js' // ⚠️ Mercado Pago deshabilitado
 import wompiRoutes from './wompi.js'
 import adminUserRoutes from './admin-users.js'
+import adminStatsRoutes from './admin-stats.js'
 
 
 
@@ -66,5 +67,6 @@ export {
   profileRoutes,
   // paymentRoutes, // ⚠️ Mercado Pago deshabilitado
   wompiRoutes,
-  adminUserRoutes
+  adminUserRoutes,
+  adminStatsRoutes
 };
