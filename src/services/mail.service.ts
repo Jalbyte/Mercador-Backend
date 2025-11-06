@@ -2,6 +2,7 @@ import FormData from 'form-data'
 import path from 'path'
 import { Readable } from 'stream'
 import { MAILGUN_API_KEY, MAILGUN_DOMAIN, ENABLE_PDF_ATTACH } from '../config/env.js'
+import { generateInvoicePDF, type InvoiceData } from './pdf.service.js'
 
 // dynamic imports for heavy / optional dependencies
 let Mailgun: any
@@ -16,19 +17,6 @@ try {
 try {
   fetchFn = (await import('node-fetch')).default
 } catch (_) {
-}
-
-// Optional puppeteer for PDF generation. We import lazily to avoid heavy startup cost.
-let puppeteer: any = null
-async function loadPuppeteer() {
-  if (puppeteer) return puppeteer
-  try {
-    puppeteer = (await import('puppeteer')).default || (await import('puppeteer'))
-    return puppeteer
-  } catch (e) {
-    puppeteer = null
-    return null
-  }
 }
 
 const mailgunFactory = Mailgun ? new Mailgun(FormData) : null
@@ -54,20 +42,6 @@ async function fetchTemplateHtml(url: string): Promise<string> {
   const res = await fetchToUse(url)
   if (!res.ok) throw new Error(`Failed to fetch template HTML: ${res.status}`)
   return await res.text()
-}
-
-async function generatePdfFromHtml(html: string): Promise<Buffer> {
-  const pupp = await loadPuppeteer()
-  if (!pupp) throw new Error('Puppeteer is not installed')
-  const browser = await pupp.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
-  try {
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' })
-    const pdf: Buffer = await page.pdf({ format: 'A4', printBackground: true })
-    return pdf
-  } finally {
-    await browser.close()
-  }
 }
 
 /**
@@ -165,16 +139,29 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
   // Prepare attachments array
   const allAttachments: Array<any> = []
 
-  // Generate PDF from /email/invoice if requested
-  if (attachPdf) {
+  // Generate PDF from invoice data if requested (usando PDFKit, no Puppeteer)
+  if (attachPdf && templateQuery) {
     try {
-      // Build invoice URL using the same query parameters
-      const invoiceUrl = new URL(emailUrl.toString().replace('/order-status', '/invoice'))
+      console.log('📄 Generando PDF de factura con PDFKit...')
       
-      console.log('📄 Generando PDF de factura desde:', invoiceUrl.href.substring(0, 100) + '...')
+      // Extraer datos de la factura del templateQuery
+      const invoiceData: InvoiceData = {
+        orderId: templateQuery.orderId || '',
+        reference: templateQuery.reference || '',
+        customerName: templateQuery.customerName || '',
+        customerEmail: templateQuery.customerEmail || '',
+        items: templateQuery.items ? JSON.parse(templateQuery.items) : [],
+        subtotal: parseFloat(templateQuery.subtotal || '0'),
+        tax: parseFloat(templateQuery.tax || '0'),
+        total: parseFloat(templateQuery.total || '0'),
+        paymentMethod: templateQuery.paymentMethod || 'Wompi',
+        transactionId: templateQuery.transactionId,
+        date: templateQuery.date || new Date().toISOString(),
+        status: (templateQuery.status as any) || 'confirmed'
+      }
       
-      const invoiceHtml = await fetchTemplateHtml(invoiceUrl.toString())
-      const pdf = await generatePdfFromHtml(invoiceHtml)
+      // Generar PDF directamente con PDFKit (sin navegador)
+      const pdf = await generateInvoicePDF(invoiceData)
       
       // Convertir Buffer a Stream para Mailgun
       allAttachments.push({
