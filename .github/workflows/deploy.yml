@@ -1,33 +1,35 @@
-name: Trigger deploy to Koyeb
-
-permissions:
-  contents: write
+name: 🚀 Deploy to AWS EC2
 
 on:
   push:
     branches:
-      - trigger-ci
+      - deploy
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: trigger-ci
 
-      - name: Fetch all branches
-        run: git fetch --all
-
-      - name: Set up Git
+      - name: Configure SSH
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Push to deploy branch
+      - name: Prepare remote directory
         run: |
-          git checkout deploy
-          git merge --no-ff trigger-ci -m "CI: merge trigger-ci to deploy"
-          git push origin deploy
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "mkdir -p /home/ec2-user/mercador"
+
+      - name: Upload .env.local to EC2
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env.local
+          scp -i ~/.ssh/id_rsa .env.local \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/mercador/.env.local
+
+      - name: Run deployment script on EC2
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "export GITHUB_TOKEN='${{ secrets.GHA_PAT }}' && nohup bash /home/ec2-user/deploy.sh > /home/ec2-user/deploy.log 2>&1 &"
