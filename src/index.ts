@@ -134,7 +134,7 @@ app.use('*', async (c, next) => {
  * @returns {Response} HTML con mensaje de bienvenida
  */
 app.get('/', (c) => {
-  return c.html(`<html><body><h1>Mercador</h1><p>CI/CD</p></body></html>`)
+  return c.html(`<html><body><h1>Mercador</h1><p>CI/CD 2</p></body></html>`)
 })
 
 // -------------------- Middlewares & Rutas --------------------
