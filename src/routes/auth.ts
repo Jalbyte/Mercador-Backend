@@ -276,15 +276,12 @@ authRoutes.openapi(loginRoute, async (c) => {
       isProduction ? 'Secure' : '',
       `SameSite=Lax`
     ].filter(Boolean).join('; ')
-    const origin = c.req.header('Origin') || '';
 
     return c.json({
       success: true,
       session: result.session
     }, 200, {
       'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Origin': origin,
     });
   } catch (err) {
     return c.json({ success: false, error: 'Email o contraseña incorrectos' }, 401);
@@ -359,11 +356,8 @@ authRoutes.openapi(logoutRoute, async (c) => {
     // ignore
   }
 
-  const origin = c.req.header('Origin') || '';
   return c.json({ success: true, message: 'Sesión cerrada exitosamente' }, 200, {
     'Set-Cookie': [cookie, clearRefresh, clearAccessAuth],
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Origin': origin,
   });
 });
 
@@ -496,11 +490,8 @@ authRoutes.openapi(refreshRoute, async (c) => {
     ].filter(Boolean).join('; ')
 
     const csrf = issueCsrfCookie()
-    const origin = c.req.header('Origin') || '';
     return c.json({ success: true }, 200, {
       'Set-Cookie': [accessCookie, refreshCookie, clearAccessAuth, csrf],
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Origin': origin,
     })
   } catch (e) {
     return c.json({ success: false, error: 'Refresh failed' }, 401)
@@ -597,8 +588,6 @@ authRoutes.openapi(sessionRoute, async (c) => {
 
     const csrf = issueCsrfCookie()
     cookies.push(csrf)
-
-    const origin = c.req.header('Origin') || ''
     
     console.log('[Session] ✅ Sesión establecida correctamente')
     return c.json({ 
@@ -607,8 +596,6 @@ authRoutes.openapi(sessionRoute, async (c) => {
       user: userData.user 
     }, 200, {
       'Set-Cookie': cookies,
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Origin': origin,
     })
   } catch (err) {
     console.error('[Session] Error estableciendo sesión:', err)
@@ -756,15 +743,12 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       isProduction ? 'Secure' : '',
       `SameSite=Lax`
     ].filter(Boolean).join('; ')
-    const origin = c.req.header('Origin') || ''
 
     return c.json({
       success: true,
       session: sessionData.session
     }, 200, {
       'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Origin': origin,
     })
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
