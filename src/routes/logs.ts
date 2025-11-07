@@ -32,8 +32,7 @@ logRoutes.use('*', authMiddleware);
 function isAdmin(c: any): boolean {
     const role = c.get('userRole');
     logger.info({ role }, 'Verificando rol de usuario para acceso a logs');
-    // return role === 'admin';
-    return true;
+    return role === 'admin';
 }
 
 // Configuración de rutas de logs
