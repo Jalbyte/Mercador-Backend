@@ -37,14 +37,22 @@ const app = new OpenAPIHono()
  */
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || ''
-  const allowedOrigins = ['http://localhost:3000', 'https://www.mercador.app']
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://mercador.app',
+    'https://www.mercador.app',
+    'https://api.mercador.app'
+  ]
 
   if (origin && allowedOrigins.includes(origin)) {
     c.header('Access-Control-Allow-Origin', origin)
     c.header('Vary', 'Origin')
     c.header('Access-Control-Allow-Credentials', 'true')
   } else {
-    c.header('Access-Control-Allow-Origin', '*')
+    // Si el origen no está en la lista, no establecemos CORS
+    // Esto es más seguro que usar '*' con credentials
+    c.header('Access-Control-Allow-Origin', origin || '*')
+    c.header('Access-Control-Allow-Credentials', 'true')
   }
 
   c.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
