@@ -13,7 +13,7 @@ import { pino } from 'pino'
 import { API_URL, LOG_LEVEL, PORT } from './config/env.js'
 import { authMiddleware, optionalAuthMiddleware } from './middlewares/index.js'
 import { cookieToAuthHeader } from './middlewares/cookieToAuthHeader.js'
-import { healthRoutes, authRoutes, cartRoutes, orderRoutes, productRoutes, profileRoutes, wompiRoutes, adminUserRoutes, adminStatsRoutes} from './routes/index.js'
+import { healthRoutes, authRoutes, cartRoutes, orderRoutes, productRoutes, profileRoutes, wompiRoutes, adminUserRoutes, adminStatsRoutes, returnRoutes, logRoutes} from './routes/index.js'
 
 // Importar métricas centralizadas
 import {
@@ -158,6 +158,10 @@ app.use('/auth/me', authMiddleware)
 app.use('/products/*', optionalAuthMiddleware)
 app.use('/admin/*', cookieToAuthHeader)
 app.use('/admin/*', authMiddleware)
+app.use('/returns/*', cookieToAuthHeader)
+app.use('/returns/*', authMiddleware)
+app.use('/logs/*', cookieToAuthHeader)
+app.use('/logs/*', authMiddleware)
 
 /**
  * Montaje de todas las rutas de la aplicación.
@@ -174,6 +178,8 @@ app.route('/orders', orderRoutes)
 app.route('/wompi', wompiRoutes)
 app.route('/admin/users', adminUserRoutes)
 app.route('/admin', adminStatsRoutes)
+app.route('/returns', returnRoutes)
+app.route('/logs', logRoutes)
 
 // -------------------- Redis health --------------------
 /**

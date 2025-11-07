@@ -32,7 +32,7 @@ export const envSchema = z.object({
   /** Clave anónima para acceso público a Supabase */
   SUPABASE_ANON_KEY: z.string().min(1),
   /** Clave de servicio para acceso administrativo a Supabase (opcional) */
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
   // Redis
   /** URL completa de conexión a Redis (opcional, alternativa a configuración individual) */
