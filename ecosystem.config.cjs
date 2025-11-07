@@ -8,7 +8,6 @@ module.exports = {
     watch: false,
     max_memory_restart: '1G',
     dotenv: './.env',
-    // Los logs se guardarán en /home/ec2-user/.pm2/logs/
     error_file: '/home/ec2-user/mercador/logs/error.log',
     out_file: '/home/ec2-user/mercador/logs/output.log',
     log_file: '/home/ec2-user/mercador/logs/combined.log',
