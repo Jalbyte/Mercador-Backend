@@ -97,14 +97,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
  * }
  * ```
  */
-export const supabaseAdmin = SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-  : null
+export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 // Debug: Imprimir las primeros caracteres de tu clave
 console.log('SERVICE_ROLE_KEY first 10 chars:', SUPABASE_SERVICE_ROLE_KEY?.substring(0, 10))

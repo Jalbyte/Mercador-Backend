@@ -325,4 +325,74 @@ orderRoutes.openapi(updateOrderStatusRoute, async (c) => {
   }
 })
 
+/**
+ * POST /orders/:id/resend-keys - Reenviar email con claves de licencia
+ */
+const resendKeysRoute = createRoute({
+  method: 'post',
+  path: '/:id/resend-keys',
+  tags: ['Orders'],
+  summary: 'Reenviar claves de licencia por email',
+  description: 'Reenvía el email con las claves de licencia de una orden específica al usuario',
+  security: [{ Bearer: [] }],
+  request: {
+    params: z.object({
+      id: z.string().regex(/^\d+$/).transform(Number)
+    })
+  },
+  responses: {
+    200: {
+      description: 'Email enviado exitosamente',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string()
+          })
+        }
+      }
+    },
+    403: {
+      description: 'No autorizado - orden no pertenece al usuario'
+    },
+    404: {
+      description: 'Orden no encontrada'
+    },
+    500: {
+      description: 'Error al enviar email'
+    }
+  }
+})
+
+orderRoutes.openapi(resendKeysRoute, async (c) => {
+  try {
+    const { id } = c.req.valid('param')
+    const token = getTokenFromRequest(c)
+    
+    if (!token) {
+      return c.json({
+        success: false,
+        error: 'Token de autenticación requerido'
+      }, 401)
+    }
+
+    await orderService.resendOrderKeys(id, token)
+
+    return c.json({
+      success: true,
+      message: 'Claves enviadas por email exitosamente'
+    })
+  } catch (error) {
+    const statusCode = error instanceof Error && error.message.includes('No autorizado') ? 403 
+                     : error instanceof Error && error.message.includes('no encontrada') ? 404 
+                     : 500
+    
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al reenviar claves'
+    }, statusCode)
+  }
+})
+
 export default orderRoutes
+

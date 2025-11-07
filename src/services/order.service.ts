@@ -549,3 +549,98 @@ export async function logOrderError(
     console.error('Error al guardar error de orden:', err)
   }
 }
+
+/**
+ * Reenvía el email con las claves de licencia de una orden
+ */
+export async function resendOrderKeys(orderId: number, accessToken: string): Promise<void> {
+  const client = createSupabaseClient(accessToken)
+  
+  // Obtener la orden con sus items y claves
+  const { data: order, error: orderError } = await client
+    .from('orders')
+    .select(`
+      id,
+      user_id,
+      created_at,
+      order_items (
+        id,
+        product_id,
+        quantity,
+        products (
+          id,
+          name
+        ),
+        product_keys!product_keys_order_item_id_fkey (
+          id,
+          license_key,
+          status
+        )
+      )
+    `)
+    .eq('id', orderId)
+    .single()
+
+  if (orderError || !order) {
+    throw new Error('Orden no encontrada o no autorizado')
+  }
+
+  // Verificar que el usuario autenticado es el dueño de la orden
+  const { data: { user } } = await client.auth.getUser()
+  if (!user || user.id !== order.user_id) {
+    throw new Error('No autorizado para acceder a esta orden')
+  }
+
+  // Obtener email del usuario
+  const { data: profile } = await client
+    .from('profiles')
+    .select('email, full_name')
+    .eq('id', order.user_id)
+    .single()
+
+  if (!profile?.email) {
+    throw new Error('Email del usuario no encontrado')
+  }
+
+  // Importar servicio de email
+  const { sendOrderEmail } = await import('./mail.service.js')
+
+  // Preparar datos de las claves agrupadas por producto
+  const productKeys: Array<{
+    productId: number
+    productName: string
+    quantity: number
+    keys: string[]
+  }> = []
+
+  for (const item of order.order_items || []) {
+    const product = Array.isArray(item.products) ? item.products[0] : item.products
+    const keys = Array.isArray(item.product_keys) 
+      ? item.product_keys.map((k: any) => k.license_key) 
+      : []
+    
+    productKeys.push({
+      productId: product?.id || 0,
+      productName: product?.name || 'Unknown Product',
+      quantity: keys.length,
+      keys
+    })
+  }
+
+  // Construir template query para email con claves
+  const templateQuery: Record<string, string> = {
+    orderId: `ORDER-${order.id}`,
+    orderDate: new Date(order.created_at).toLocaleDateString('es-CO'),
+    customerName: profile.full_name || profile.email,
+    products: JSON.stringify(productKeys)
+  }
+
+  // Enviar email con las claves
+  await sendOrderEmail({
+    to: profile.email,
+    subject: `Claves de Licencia - Orden ${order.id}`,
+    templatePath: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/email/license-keys`,
+    templateQuery,
+    attachPdf: false
+  })
+}
