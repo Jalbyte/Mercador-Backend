@@ -7,10 +7,7 @@ module.exports = {
     autorestart: true,
     watch: false,
     max_memory_restart: '1G',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3010
-    },
+    dotenv: './.env',
     // Los logs se guardarán en /home/ec2-user/.pm2/logs/
     error_file: '/home/ec2-user/mercador/logs/error.log',
     out_file: '/home/ec2-user/mercador/logs/output.log',
