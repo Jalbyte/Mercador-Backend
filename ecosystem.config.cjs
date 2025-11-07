@@ -1,8 +1,7 @@
 module.exports = {
   apps: [{
     name: 'mercador-backend',
-    script: 'npm',
-    args: 'start',
+    script: 'dist/index.js',
     cwd: '/home/ec2-user/mercador',
     instances: 1,
     autorestart: true,
