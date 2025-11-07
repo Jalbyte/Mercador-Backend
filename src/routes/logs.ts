@@ -5,22 +5,13 @@
  * en producción. Solo accesible para administradores.
  *
  * Funcionalidades implementadas:
- * - ✅ Obtener logs de error (error.log)
- * - ✅ Obtener logs de salida (output.log)
- * - ✅ Obtener logs combinados (combined.log)
+ * - ✅ Obtener logs de error (busca el archivo más reciente que empieza con 'error')
+ * - ✅ Obtener logs de salida (busca el archivo más reciente que empieza con 'output')
+ * - ✅ Obtener logs combinados (busca el archivo más reciente que empieza con 'combined')
  * - ✅ Solo disponible en producción
  * - ✅ Solo accesible para administradores
  *
  * @module routes/logs
- *
- * @example
- * ```typescript
- * import logRoutes from './routes/logs'
- *
- * // Registrar rutas de logs (requieren autenticación de admin)
- * app.use('/logs/*', authMiddleware)
- * app.route('/logs', logRoutes)
- * ```
  */
 
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
@@ -41,25 +32,72 @@ logRoutes.use('*', authMiddleware);
 function isAdmin(c: any): boolean {
     const role = c.get('userRole');
     logger.info({ role }, 'Verificando rol de usuario para acceso a logs');
-    //   return role === 'admin';
+    // return role === 'admin';
     return true;
 }
 
 // Configuración de rutas de logs
 const LOG_BASE_PATH = '/home/ec2-user/mercador/logs';
-const LOG_FILES = {
-    error: 'error.log',
-    output: 'output.log',
-    combined: 'combined.log',
-} as const;
 
-type LogType = keyof typeof LOG_FILES;
+// Los nombres clave que se buscarán
+const LogTypeEnum = z.enum(['error', 'output', 'combined']);
+type LogType = z.infer<typeof LogTypeEnum>;
 
 /**
- * Lee un archivo de log y retorna las últimas N líneas
+ * BUSCA el archivo de log más reciente en LOG_BASE_PATH
+ * que comienza con el prefijo especificado (ej: 'error', 'output').
+ */
+async function findLogFile(logType: LogType): Promise<string> {
+    try {
+        // 1. Leer todos los archivos en el directorio de logs
+        const files = await fs.readdir(LOG_BASE_PATH);
+
+        // 2. Filtrar por el prefijo (ej: error-11.log, output-11.log)
+        // PM2 usa el patrón: [nombre_de_la_app]-[id]-[logType].log, o solo [logType]-[id].log
+        const logPrefix = logType;
+
+        const matchingFiles = files.filter(file =>
+            file.includes(logPrefix) && file.endsWith('.log') && !file.includes('__')
+        );
+
+        if (matchingFiles.length === 0) {
+            throw new Error(`Archivos de log para '${logType}' no encontrados.`);
+        }
+
+        // 3. Encontrar el archivo más reciente (basado en el timestamp de modificación)
+        let latestFile = '';
+        let latestMtimeMs = 0;
+
+        for (const file of matchingFiles) {
+            const filePath = path.join(LOG_BASE_PATH, file);
+            const stats = await fs.stat(filePath);
+
+            if (stats.mtimeMs > latestMtimeMs) {
+                latestMtimeMs = stats.mtimeMs;
+                latestFile = filePath;
+            }
+        }
+
+        if (!latestFile) {
+            throw new Error(`No se pudo determinar el archivo más reciente para '${logType}'.`);
+        }
+
+        return latestFile;
+
+    } catch (error) {
+        if ((error as any).code === 'ENOENT') {
+            throw new Error(`Directorio de logs no encontrado: ${LOG_BASE_PATH}`);
+        }
+        throw error;
+    }
+}
+
+
+/**
+ * Lee un archivo de log encontrado dinámicamente y retorna las últimas N líneas
  */
 async function readLogFile(logType: LogType, lines: number = 100): Promise<string[]> {
-    const filePath = path.join(LOG_BASE_PATH, LOG_FILES[logType]);
+    const filePath = await findLogFile(logType);
 
     try {
         const content = await fs.readFile(filePath, 'utf-8');
@@ -68,38 +106,40 @@ async function readLogFile(logType: LogType, lines: number = 100): Promise<strin
         // Retornar las últimas N líneas
         return allLines.slice(-lines);
     } catch (error) {
-        if ((error as any).code === 'ENOENT') {
-            throw new Error(`Archivo de log no encontrado: ${LOG_FILES[logType]}`);
-        }
-        throw error;
+        // En este punto, el error más probable es de lectura/permisos
+        throw new Error(`Error al leer archivo ${path.basename(filePath)}: ${(error as Error).message}`);
     }
 }
 
 /**
- * Obtiene información del tamaño de un archivo de log
+ * Obtiene información del tamaño de un archivo de log encontrado dinámicamente
  */
-async function getLogFileInfo(logType: LogType): Promise<{ size: number; lastModified: Date }> {
-    const filePath = path.join(LOG_BASE_PATH, LOG_FILES[logType]);
-
+async function getLogFileInfo(logType: LogType): Promise<{ size: number; lastModified: Date; filePath: string }> {
     try {
+        const filePath = await findLogFile(logType);
         const stats = await fs.stat(filePath);
+
         return {
             size: stats.size,
             lastModified: stats.mtime,
+            filePath: filePath,
         };
     } catch (error) {
-        if ((error as any).code === 'ENOENT') {
-            return { size: 0, lastModified: new Date(0) };
+        // Aquí capturamos el error de findLogFile si no encuentra el archivo
+        if (error instanceof Error && error.message.includes('no encontrados')) {
+            return {
+                size: 0,
+                lastModified: new Date(0),
+                filePath: path.join(LOG_BASE_PATH, `${logType}-...log`) // Usar un path de ejemplo para referencia
+            };
         }
         throw error;
     }
 }
 
 // ==================
-// SCHEMAS
+// SCHEMAS (Se mantiene igual, solo se usa el nuevo LogTypeEnum)
 // ==================
-
-const LogTypeEnum = z.enum(['error', 'output', 'combined']);
 
 const GetLogsQuerySchema = z.object({
     lines: z.string().optional().default('100').transform((val) => parseInt(val, 10)),
@@ -114,6 +154,7 @@ const LogsResponseSchema = z.object({
         fileInfo: z.object({
             size: z.number(),
             lastModified: z.string(),
+            path: z.string(), // Se añade la ruta para claridad
         }),
     }),
 });
@@ -167,7 +208,7 @@ logRoutes.openapi(
     }),
     async (c) => {
         try {
-            // Verificar que sea admin
+            // ... (isAdmin y NODE_ENV check se mantienen iguales)
             if (!isAdmin(c)) {
                 logger.warn({ userId: c.get('userId') }, 'Intento de acceso no autorizado a logs');
                 return c.json(
@@ -179,7 +220,6 @@ logRoutes.openapi(
                 );
             }
 
-            // Verificar que estemos en producción
             if (env.NODE_ENV !== 'production') {
                 return c.json(
                     {
@@ -191,23 +231,25 @@ logRoutes.openapi(
                 );
             }
 
-            // Obtener información de todos los archivos de log
+            // Obtener información de todos los archivos de log dinámicamente
+            const logTypes: LogType[] = LogTypeEnum.options;
+
             const filesInfo = await Promise.all(
-                Object.keys(LOG_FILES).map(async (type) => {
-                    const logType = type as LogType;
+                logTypes.map(async (logType) => {
                     try {
                         const info = await getLogFileInfo(logType);
                         return {
                             type: logType,
-                            path: path.join(LOG_BASE_PATH, LOG_FILES[logType]),
+                            path: info.filePath,
                             size: info.size,
                             lastModified: info.lastModified.toISOString(),
                             exists: info.size > 0,
                         };
                     } catch (error) {
+                        // Esto captura errores si el directorio existe pero la lógica falla (menos probable)
                         return {
                             type: logType,
-                            path: path.join(LOG_BASE_PATH, LOG_FILES[logType]),
+                            path: path.join(LOG_BASE_PATH, `${logType}-<ID>.log`),
                             size: 0,
                             lastModified: new Date(0).toISOString(),
                             exists: false,
@@ -278,7 +320,7 @@ logRoutes.openapi(
     }),
     async (c) => {
         try {
-            // Verificar que sea admin
+            // ... (isAdmin y NODE_ENV check se mantienen iguales)
             if (!isAdmin(c)) {
                 logger.warn({ userId: c.get('userId') }, 'Intento de acceso no autorizado a logs');
                 return c.json(
@@ -290,7 +332,6 @@ logRoutes.openapi(
                 );
             }
 
-            // Verificar que estemos en producción
             if (env.NODE_ENV !== 'production') {
                 return c.json(
                     {
@@ -305,10 +346,9 @@ logRoutes.openapi(
             const { type } = c.req.valid('param');
             const { lines } = c.req.valid('query');
 
-            // Validar número de líneas (máximo 1000)
             const maxLines = Math.min(lines, 1000);
 
-            // Leer el archivo de log
+            // Leer el archivo de log (usa la nueva lógica dinámica)
             const logLines = await readLogFile(type as LogType, maxLines);
             const fileInfo = await getLogFileInfo(type as LogType);
 
@@ -326,13 +366,14 @@ logRoutes.openapi(
                     fileInfo: {
                         size: fileInfo.size,
                         lastModified: fileInfo.lastModified.toISOString(),
+                        path: fileInfo.filePath, // Se añade la ruta
                     },
                 },
             });
         } catch (error: any) {
             logger.error({ error }, 'Error al leer archivo de log');
 
-            const statusCode = error.message?.includes('no encontrado') ? 404 : 500;
+            const statusCode = error.message?.includes('no encontrados') || error.message?.includes('no pudo determinar') ? 404 : 500;
 
             return c.json(
                 {
@@ -354,7 +395,7 @@ logRoutes.openapi(
         path: '/{type}',
         tags: ['Logs - Admin'],
         summary: '[Admin] Limpiar logs',
-        description: 'Limpia el contenido de un archivo de log específico',
+        description: 'Limpia el contenido del archivo de log más reciente para ese tipo.',
         security: [{ Bearer: [] }],
         request: {
             params: z.object({
@@ -368,6 +409,9 @@ logRoutes.openapi(
             403: {
                 description: 'Acceso denegado - requiere rol admin',
             },
+            404: {
+                description: 'Archivo de log no encontrado',
+            },
             503: {
                 description: 'Logs no disponibles - solo en producción',
             },
@@ -375,7 +419,7 @@ logRoutes.openapi(
     }),
     async (c) => {
         try {
-            // Verificar que sea admin
+            // ... (isAdmin y NODE_ENV check se mantienen iguales)
             if (!isAdmin(c)) {
                 logger.warn({ userId: c.get('userId') }, 'Intento de limpiar logs sin autorización');
                 return c.json(
@@ -387,7 +431,6 @@ logRoutes.openapi(
                 );
             }
 
-            // Verificar que estemos en producción
             if (env.NODE_ENV !== 'production') {
                 return c.json(
                     {
@@ -400,28 +443,33 @@ logRoutes.openapi(
             }
 
             const { type } = c.req.valid('param');
-            const filePath = path.join(LOG_BASE_PATH, LOG_FILES[type as LogType]);
 
-            // Limpiar el archivo (truncar a 0 bytes)
+            // 1. Encontrar la ruta del archivo más reciente
+            const filePath = await findLogFile(type as LogType);
+
+            // 2. Limpiar el archivo (truncar a 0 bytes)
             await fs.writeFile(filePath, '', 'utf-8');
 
             logger.info(
-                { userId: c.get('userId'), logType: type },
+                { userId: c.get('userId'), logType: type, filePath: filePath },
                 'Archivo de log limpiado'
             );
 
             return c.json({
                 success: true,
-                message: `Archivo de log ${type} limpiado exitosamente`,
+                message: `Archivo de log ${path.basename(filePath)} limpiado exitosamente`,
             });
         } catch (error: any) {
             logger.error({ error }, 'Error al limpiar archivo de log');
+
+            const statusCode = error.message?.includes('no encontrados') ? 404 : 500;
+
             return c.json(
                 {
                     success: false,
                     error: error.message || 'Error al limpiar archivo de log',
                 },
-                500
+                statusCode
             );
         }
     }
