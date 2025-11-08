@@ -3,10 +3,6 @@ import pino from 'pino'
 import { createClient } from 'redis'
 import {
   NODE_ENV,
-  REDIS_HOST,
-  REDIS_PASSWORD,
-  REDIS_PORT,
-  REDIS_TOKEN,
   REDIS_URL,
   UPSTASH_REDIS_REST_TOKEN,
   UPSTASH_REDIS_REST_URL,
@@ -68,7 +64,7 @@ export async function initRedis(logger: pino.Logger) {
       get: async (k: string) => store.get(k) ?? null,
       del: async (k: string) => (store.delete(k) ? 1 : 0),
       exists: async (k: string) => (store.has(k) ? 1 : 0),
-      quit: async () => {},
+      quit: async () => { },
       // rest client compatibility (Upstash)
       // keep method names compatible: set(key, value) or set(key, value, { ex })
     }
@@ -88,59 +84,58 @@ export async function initRedis(logger: pino.Logger) {
     return redisClient
   }
 
-  // --- 2. TCP con node-redis ---
-  const redisUrl = REDIS_URL
-  const redisHost = REDIS_HOST || 'redis'
-  const redisPort = Number(REDIS_PORT || 6379)
-  const redisPassword = REDIS_PASSWORD || REDIS_TOKEN
-
-  let effectiveUrl = redisUrl
-  if (redisUrl) {
-    try {
-      const parsed = new URL(redisUrl)
-      if (!parsed.username && !parsed.password && redisPassword) {
-        parsed.username = 'default'
-        parsed.password = redisPassword
-        effectiveUrl = parsed.toString()
+  // --- 2. TCP con redis client (para URLs tipo redis://)---
+  if (REDIS_URL) {
+    const client = createClient({
+      url: REDIS_URL,
+      socket: {
+        family: 4, // Forzar IPv4
+        reconnectStrategy: (retries) => Math.min(retries * 50, 2000),
+        connectTimeout: 15000,
+      },
+    });
+    
+    // Desactivar error logging durante la conexión inicial
+    let connectionFailed = false
+    client.on('error', (err) => {
+      if (!connectionFailed) {
+        connectionFailed = true
+        logger.warn({ err }, '⚠️ Redis TCP connection failed, falling back to in-memory stub')
       }
-    } catch {
-      logger.warn('⚠️ Invalid REDIS_URL format, using as-is')
-      effectiveUrl = redisUrl
+    })
+
+    try {
+      await client.connect()
+      logger.info(`✅ Connected to Redis at ${REDIS_URL.replace(/:[^:@]+@/, ':****@')} (TCP mode)`)
+      redisClient = client
+      mode = 'tcp'
+      return client
+    } catch (err: any) {
+      logger.warn({ err: err.message }, '⚠️ Redis TCP unreachable, using in-memory stub for local development')
+      // No lanzar error, continuar al fallback
     }
   }
 
-  const client = effectiveUrl
-    ? createClient({
-        url: effectiveUrl,
-        socket: {
-          reconnectStrategy: (retries) => Math.min(retries * 50, 2000),
-          connectTimeout: 15000,
-        },
-      })
-    : createClient({
-        socket: {
-          host: redisHost,
-          port: redisPort,
-          reconnectStrategy: (retries) => Math.min(retries * 50, 2000),
-          connectTimeout: 15000,
-        },
-        password: redisPassword,
-      })
-
-  client.on('error', (err) => logger.error({ err }, 'Redis error'))
-
-  try {
-    await client.connect()
-    logger.info(
-      `✅ Connected to Redis at ${redisUrl || `${redisHost}:${redisPort}`} (TCP mode)`
-    )
-    redisClient = client
-    mode = 'tcp'
-    return client
-  } catch (err: any) {
-    logger.error({ err }, '❌ Failed to connect to Redis (TCP)')
-    throw err
+  // Si llegamos aquí, no hay configuración de Redis válida en producción
+  // Fallback a stub en memoria para desarrollo/testing local
+  logger.warn('⚠️ No Redis configuration found. Using in-memory stub as fallback.')
+  const store = new Map<string, string>()
+  const stub = {
+    set: async (k: string, v: string, opts?: any) => {
+      store.set(k, v)
+      return 'OK'
+    },
+    setEx: async (k: string, ttl: number, v: string) => {
+      store.set(k, v)
+      return 'OK'
+    },
+    get: async (k: string) => store.get(k) ?? null,
+    del: async (k: string) => (store.delete(k) ? 1 : 0),
+    exists: async (k: string) => (store.has(k) ? 1 : 0),
+    quit: async () => { },
   }
+  redisClient = stub
+  return redisClient
 }
 
 /**

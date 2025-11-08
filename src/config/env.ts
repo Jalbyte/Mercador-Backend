@@ -37,14 +37,6 @@ export const envSchema = z.object({
   // Redis
   /** URL completa de conexión a Redis (opcional, alternativa a configuración individual) */
   REDIS_URL: z.url().optional(),
-  /** Host del servidor Redis */
-  REDIS_HOST: z.string().default('localhost'),
-  /** Token de autenticación para Redis (opcional) */
-  REDIS_TOKEN: z.string().optional(),
-  /** Puerto del servidor Redis */
-  REDIS_PORT: z.coerce.number().default(6379),
-  /** Contraseña de autenticación para Redis (opcional) */
-  REDIS_PASSWORD: z.string().optional(),
 
   // Auth
   // App URLs
@@ -132,10 +124,6 @@ export const {
   UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN,
   REDIS_URL,
-  REDIS_HOST,
-  REDIS_TOKEN,
-  REDIS_PORT,
-  REDIS_PASSWORD,
   LOG_LEVEL,
   APP_REDIRECT_URL,
   POST_LOGOUT_REDIRECT_URL,
