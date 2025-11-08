@@ -46,7 +46,7 @@ import { clearCookie, clearSessionCookie } from '../services/user.service.js'
 import { supabase } from '../config/supabase.js'
 import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
-import { logger } from '@/utils/logger.js'
+import { logger } from '../utils/logger.js'
 
 const authRoutes = new OpenAPIHono()
 
