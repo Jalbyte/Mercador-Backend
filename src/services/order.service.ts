@@ -61,20 +61,26 @@ function nowWithLocalOffset(): string {
 }
 
 export interface Order {
-  id: string
+  id: number
   user_id: string
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
   total_amount: number
-  shipping_address: any
+  shipping_address: {
+    addressLine1: string
+    city: string
+    region: string
+    country: string
+    phoneNumber: string
+  }
   payment_method: string
   created_at: string
   updated_at: string
-  items?: OrderItem[]
+  order_items?: OrderItem[]
 }
 
 export interface OrderItem {
-  id: string
-  order_id: string
+  id: number
+  order_id: number
   product_id: number
   quantity: number
   price: number

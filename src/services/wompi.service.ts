@@ -366,8 +366,8 @@ export class WompiService {
             let totalKeysCount = 0
 
             // Asignar claves para cada producto
-            if (Array.isArray(order.items)) {
-              for (const item of order.items) {
+            if (Array.isArray(order.order_items)) {
+              for (const item of order.order_items) {
                 try {
                   const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
 
@@ -426,17 +426,17 @@ export class WompiService {
             }
 
             // 2. Generar PDF de la factura (si está habilitado)
-            if (ENABLE_PDF_ATTACH && order.items && order.items.length > 0) {
+            if (ENABLE_PDF_ATTACH && order.order_items && order.order_items.length > 0) {
               try {
                 // Preparar datos de la factura
-                const invoiceItems = order.items.map(item => ({
+                const invoiceItems = order.order_items.map(item => ({
                   product_id: item.product_id,
                   name: item.product?.name || `Producto #${item.product_id}`,
                   quantity: item.quantity,
                   price: item.price
                 }))
 
-                const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                const subtotal = order.order_items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
                 const tax = 0 // Calcular IVA si es necesario
                 const total = subtotal + tax
 
