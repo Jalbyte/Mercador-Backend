@@ -10,7 +10,7 @@
 import { serve } from '@hono/node-server'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { pino } from 'pino'
-import { API_URL, LOG_LEVEL, PORT } from './config/env.js'
+import { API_URL, LOG_LEVEL, NODE_ENV, PORT } from './config/env.js'
 import { authMiddleware, optionalAuthMiddleware } from './middlewares/index.js'
 import { cookieToAuthHeader } from './middlewares/cookieToAuthHeader.js'
 import { healthRoutes, authRoutes, cartRoutes, orderRoutes, productRoutes, profileRoutes, wompiRoutes, adminUserRoutes, adminStatsRoutes, returnRoutes, logRoutes} from './routes/index.js'
@@ -236,7 +236,7 @@ app.get('/metrics', async (c) => {
  */
 app.onError((err, c) => {
   logger.error({ err }, 'Unhandled error')
-  if (process.env.NODE_ENV !== 'production') {
+  if (NODE_ENV !== 'production') {
     return c.json({ success: false, error: err?.message, stack: err?.stack }, 500)
   }
   return c.json({ success: false, error: 'Internal server error' }, 500)

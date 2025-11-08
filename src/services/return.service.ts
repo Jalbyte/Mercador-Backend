@@ -37,7 +37,7 @@ const createSupabaseClient = (accessToken: string) => {
             detectSessionInUrl: false
         }
     });
-    console.log({ client });
+    logger.debug({ client }, 'createSupabaseClient')
 
     return client;
 };

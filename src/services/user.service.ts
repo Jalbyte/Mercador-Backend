@@ -304,14 +304,9 @@ export async function loginWithEmail(email: string, password: string) {
     console.error('Error fetching profile during login:', err)
   }
 
-  // Si la cuenta está eliminada, devolver flag especial
+  // Si la cuenta está eliminada, rechazar el login (mantener 'deleted' en el mensaje para tests)
   if (isDeleted) {
-    return {
-      user: enrichedUser,
-      session: null,
-      mfaRequired: false,
-      accountDeleted: true,
-    }
+    throw new Error('Account is deleted')
   }
 
   // Si tiene MFA verificado pero el nivel actual es AAL1, requiere verificación adicional

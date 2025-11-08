@@ -40,6 +40,7 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as productService from '../services/product.service.js'
 import * as productKeyService from '../services/product_key.service.js'
+import { logger } from '../utils/logger.js'
 
 const productRoutes = new OpenAPIHono()
 
@@ -275,7 +276,7 @@ productRoutes.openapi(listProductsRoute, async (c) => {
   } catch (error) {
     // Log full error for debugging
     // eslint-disable-next-line no-console
-    console.error('Error in GET /products:', error)
+    logger.error({ err: error }, 'Error in GET /products:', error)
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch products'
@@ -362,7 +363,7 @@ productRoutes.openapi(getProductRoute, async (c) => {
     })
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error(`Error in GET /products/:id (${c.req.param('id')}):`, error)
+    logger.error({ err: error }, `Error in GET /products/:id (${c.req.param('id')}):`, error)
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch product'
@@ -410,7 +411,7 @@ productRoutes.openapi(createProductRoute, async (c) => {
     }, 201)
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('Error in POST /products:', error)
+    logger.error({ err: error }, 'Error in POST /products:', error)
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to create product'
@@ -462,7 +463,7 @@ productRoutes.openapi(updateProductRoute, async (c) => {
     })
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error(`Error in PUT /products/${c.req.param('id')}:`, error)
+    logger.error({ err: error }, `Error in PUT /products/${c.req.param('id')}:`, error)
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to update product'
@@ -505,7 +506,7 @@ productRoutes.openapi(deleteProductRoute, async (c) => {
     })
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error(`Error in DELETE /products/${c.req.param('id')}:`, error)
+    logger.error({ err: error }, `Error in DELETE /products/${c.req.param('id')}:`, error)
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete product'

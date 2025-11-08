@@ -9,32 +9,30 @@
 
 import FormData from 'form-data'
 import { MAILGUN_API_KEY, MAILGUN_DOMAIN } from '../config/env.js'
+import { logger } from '../utils/logger.js'
 
 const TEST_EMAIL = process.env.TEST_EMAIL
 
 if (!TEST_EMAIL) {
-  console.error('❌ Error: Debes proporcionar TEST_EMAIL')
-  console.log('Uso: TEST_EMAIL=tu@email.com npm run debug:mailgun')
+  logger.error('❌ Error: Debes proporcionar TEST_EMAIL')
+  logger.info('Uso: TEST_EMAIL=tu@email.com npm run debug:mailgun')
   process.exit(1)
 }
 
 async function debugMailgun() {
-  console.log('🔍 Diagnóstico de Mailgun\n')
+  logger.info('🔍 Diagnóstico de Mailgun\n')
 
   // 1. Verificar configuración
-  console.log('📋 Configuración:')
-  console.log('  MAILGUN_API_KEY:', MAILGUN_API_KEY ? `✅ Configurado (${MAILGUN_API_KEY.substring(0, 10)}...)` : '❌ No configurado')
-  console.log('  MAILGUN_DOMAIN:', MAILGUN_DOMAIN || '❌ No configurado')
-  console.log('  TEST_EMAIL:', TEST_EMAIL)
-  console.log()
+  logger.info('📋 Configuración:')
+  logger.info({ MAILGUN_API_KEY: MAILGUN_API_KEY ? `✅ Configurado (${MAILGUN_API_KEY.substring(0, 10)}...)` : '❌ No configurado', MAILGUN_DOMAIN, TEST_EMAIL })
 
   if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
-    console.error('❌ Configuración incompleta. Verifica tu .env')
+    logger.error('❌ Configuración incompleta. Verifica tu .env')
     process.exit(1)
   }
 
   // 2. Verificar dominio
-  console.log('🌐 Verificando dominio...')
+  logger.info('🌐 Verificando dominio...')
   try {
     const Mailgun: any = (await import('mailgun.js')).default
     const mailgun = new Mailgun(FormData)
@@ -42,20 +40,15 @@ async function debugMailgun() {
 
     // Obtener info del dominio
     const domain = await mg.domains.get(MAILGUN_DOMAIN)
-    console.log('  ✅ Dominio encontrado:', domain.name)
-    console.log('  📊 Estado:', domain.state)
-    console.log('  🔐 DKIM:', domain.dkim_authority ? '✅ Verificado' : '❌ No verificado')
-    console.log('  📧 SPF:', domain.spf ? '✅ Verificado' : '❌ No verificado')
-    console.log()
+  logger.info({ domain: domain.name, state: domain.state, dkim: domain.dkim_authority, spf: domain.spf }, 'Dominio info')
 
     if (domain.state !== 'active') {
-      console.warn('⚠️  El dominio no está activo. Verifica la configuración DNS.')
-      console.log('   Visita: https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/verify')
-      console.log()
+  logger.warn('⚠️  El dominio no está activo. Verifica la configuración DNS.')
+  logger.info('Visita: https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/verify')
     }
 
     // 3. Enviar email de prueba
-    console.log('📧 Enviando email de prueba...')
+  logger.info('📧 Enviando email de prueba...')
     const message = {
       from: `Mercador Test <noreply@${MAILGUN_DOMAIN}>`,
       to: [TEST_EMAIL],
@@ -83,52 +76,43 @@ async function debugMailgun() {
 
     const result = await mg.messages.create(MAILGUN_DOMAIN, message)
     
-    console.log('  ✅ Email enviado exitosamente!')
-    console.log('  🆔 Message ID:', result.id)
-    console.log('  📊 Status:', result.status || 'queued')
-    console.log()
+  logger.info({ id: result.id, status: result.status || 'queued' }, 'Email enviado exitosamente')
 
     // 4. Instrucciones de verificación
-    console.log('✅ Diagnóstico completado!\n')
-    console.log('📝 Próximos pasos:')
-    console.log('  1. Revisa tu bandeja de entrada:', TEST_EMAIL)
-    console.log('  2. Revisa spam/promociones si no lo ves en 1-2 minutos')
-    console.log('  3. Ver logs en Mailgun:')
-    console.log('     https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/logs')
-    console.log('  4. Si usas dominio sandbox, asegúrate de que', TEST_EMAIL, 'esté en "Authorized Recipients"')
-    console.log('     https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/recipients')
-    console.log()
+  logger.info('✅ Diagnóstico completado!')
+  logger.info('📝 Próximos pasos:')
+  logger.info({ TEST_EMAIL }, 'Revisa tu bandeja de entrada')
+  logger.info('Revisa spam/promociones si no lo ves en 1-2 minutos')
+  logger.info('Ver logs en Mailgun: https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/logs')
+  logger.info('Si usas dominio sandbox, asegúrate de que el destinatario esté en Authorized Recipients')
 
     // 5. Verificar últimos logs
-    console.log('📜 Obteniendo últimos eventos...')
+  logger.info('📜 Obteniendo últimos eventos...')
     try {
       const events = await mg.events.get(MAILGUN_DOMAIN, { limit: 5 })
       if (events && events.items && events.items.length > 0) {
-        console.log('  Últimos 5 eventos:')
+        logger.info('Últimos 5 eventos:')
         events.items.forEach((event: any, i: number) => {
-          console.log(`  ${i + 1}. ${event.event} - ${event.recipient} (${new Date(event.timestamp * 1000).toLocaleString()})`)
+          logger.info({ event, recipient: event.recipient, time: new Date(event.timestamp * 1000).toLocaleString() }, `Evento #${i + 1}`)
         })
       } else {
-        console.log('  No hay eventos recientes')
+    logger.info('No hay eventos recientes')
       }
     } catch (e: any) {
-      console.log('  ⚠️  No se pudieron obtener eventos:', e.message)
+      logger.warn({ err: e }, 'No se pudieron obtener eventos')
     }
 
   } catch (error: any) {
-    console.error('❌ Error:', error.message)
+    logger.error({ err: error }, '❌ Error')
     if (error.status === 401) {
-      console.error('  Problema: API Key inválida')
-      console.error('  Verifica: https://app.mailgun.com/app/account/security/api_keys')
+      logger.error('Problema: API Key inválida - Verifica: https://app.mailgun.com/app/account/security/api_keys')
     } else if (error.status === 404) {
-      console.error('  Problema: Dominio no encontrado')
-      console.error('  Verifica que', MAILGUN_DOMAIN, 'existe en tu cuenta de Mailgun')
-      console.error('  Visita: https://app.mailgun.com/app/sending/domains')
+      logger.error({ domain: MAILGUN_DOMAIN }, 'Problema: Dominio no encontrado - Verifica que existe en tu cuenta de Mailgun')
     } else {
-      console.error('  Detalles:', JSON.stringify(error, null, 2))
+      logger.error({ errorDetails: JSON.stringify(error, null, 2) }, 'Detalles del error')
     }
     process.exit(1)
   }
 }
 
-debugMailgun().catch(console.error)
+debugMailgun().catch((err) => logger.error({ err }, 'debugMailgun unexpected error'))

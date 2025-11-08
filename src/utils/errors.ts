@@ -112,6 +112,8 @@ export interface ErrorResponse {
   details?: any
 }
 
+import { logger } from '../utils/logger.js'
+
 export function formatError(error: Error): ErrorResponse {
   if (error instanceof AppError) {
     return {
@@ -133,6 +135,13 @@ export function formatError(error: Error): ErrorResponse {
 export function asyncHandler(fn: Function) {
   return (c: any, next: any) => {
     return Promise.resolve(fn(c, next)).catch((error: Error) => {
+      // Log the error with appropriate level before formatting the response
+      if (error instanceof AppError) {
+        logger.warn({ err: error, code: error.name }, 'Operational AppError handled by asyncHandler')
+      } else {
+        logger.error({ err: error }, 'Unexpected error handled by asyncHandler')
+      }
+
       const errorResponse = formatError(error)
       const statusCode = error instanceof AppError ? error.statusCode : 500
 

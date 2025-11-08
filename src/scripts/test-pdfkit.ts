@@ -9,9 +9,10 @@
 import { generateInvoicePDF } from '../services/pdf.service.js'
 import fs from 'fs'
 import path from 'path'
+import { logger } from '../utils/logger.js'
 
 async function testPDFKit() {
-  console.log('🧪 Iniciando test de PDFKit...\n')
+  logger.info('🧪 Iniciando test de PDFKit...\n')
   
   try {
     // Datos de prueba de una factura
@@ -49,13 +50,10 @@ async function testPDFKit() {
       status: 'confirmed' as const
     }
 
-    console.log('📋 Datos de la factura:')
-    console.log('   Cliente:', testInvoiceData.customerName)
-    console.log('   Email:', testInvoiceData.customerEmail)
-    console.log('   Productos:', testInvoiceData.items.length)
-    console.log('   Total: $' + testInvoiceData.total.toLocaleString('es-CO'), 'COP\n')
+  logger.info('📋 Datos de la factura:')
+  logger.info({ customer: testInvoiceData.customerName, email: testInvoiceData.customerEmail, products: testInvoiceData.items.length, total: testInvoiceData.total }, 'Invoice data')
 
-    console.log('📄 Generando PDF con PDFKit...')
+  logger.info('📄 Generando PDF con PDFKit...')
     const startTime = Date.now()
     
     const pdfBuffer = await generateInvoicePDF(testInvoiceData)
@@ -63,40 +61,28 @@ async function testPDFKit() {
     const endTime = Date.now()
     const timeElapsed = endTime - startTime
 
-    console.log('✅ PDF generado exitosamente!')
-    console.log('   Tamaño:', Math.round(pdfBuffer.length / 1024), 'KB')
-    console.log('   Tiempo:', timeElapsed, 'ms\n')
+  logger.info('✅ PDF generado exitosamente!')
+  logger.info({ sizeKb: Math.round(pdfBuffer.length / 1024), timeMs: timeElapsed }, 'PDF generated')
 
     // Guardar el PDF para revisarlo manualmente
     const outputPath = path.join(process.cwd(), 'test-invoice-pdfkit.pdf')
     fs.writeFileSync(outputPath, pdfBuffer)
-    console.log('💾 PDF guardado en:', outputPath)
-    console.log('   Puedes abrirlo para verificar el diseño\n')
+  logger.info({ outputPath }, '💾 PDF guardado en')
+  logger.info('Puedes abrirlo para verificar el diseño')
 
     // Estadísticas finales
-    console.log('📊 Estadísticas:')
-    console.log('   ✅ Sin Chromium requerido')
-    console.log('   ✅ Sin navegador headless')
-    console.log('   ✅ Generación nativa con PDFKit')
-    console.log('   ✅ Tiempo de generación:', timeElapsed, 'ms')
-    console.log('   ✅ Tamaño del PDF:', Math.round(pdfBuffer.length / 1024), 'KB')
-    console.log('   ✅ Memoria usada: ~', Math.round(process.memoryUsage().heapUsed / 1024 / 1024), 'MB\n')
+  logger.info('📊 Estadísticas:')
+  logger.info({ noChromium: true, noHeadless: true, generation: 'PDFKit', timeMs: timeElapsed, sizeKb: Math.round(pdfBuffer.length / 1024), memoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) }, 'Statistics')
 
-    console.log('🎉 Test completado exitosamente!\n')
-    console.log('✅ PDFKit está funcionando correctamente.')
-    console.log('✅ Los PDFs de facturas se generarán sin navegador.')
-    console.log('✅ Mucho más rápido y ligero que Puppeteer.\n')
+  logger.info('🎉 Test completado exitosamente!')
+  logger.info('✅ PDFKit está funcionando correctamente.')
+  logger.info('✅ Los PDFs de facturas se generarán sin navegador.')
+  logger.info('✅ Mucho más rápido y ligero que Puppeteer.')
 
     process.exit(0)
   } catch (error) {
-    console.error('\n❌ Error en el test de PDFKit:\n')
-    console.error(error)
-    console.error('\n📋 Troubleshooting:')
-    console.error('1. Verifica que PDFKit esté instalado:')
-    console.error('   npm install pdfkit @types/pdfkit')
-    console.error('2. Verifica que el servicio pdf.service.ts esté compilado')
-    console.error('3. Ejecuta: npm run build\n')
-    
+    logger.error({ err: error }, '❌ Error en el test de PDFKit')
+    logger.error('📋 Troubleshooting: 1) Verifica que PDFKit esté instalado: npm install pdfkit @types/pdfkit; 2) Verifica que el servicio pdf.service.ts esté compilado; 3) Ejecuta: npm run build')
     process.exit(1)
   }
 }

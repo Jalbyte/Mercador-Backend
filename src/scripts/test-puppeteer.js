@@ -12,7 +12,8 @@
 const puppeteer = require('puppeteer');
 
 async function testPuppeteer() {
-  console.log('🧪 Iniciando test de Puppeteer...\n');
+  const { logger } = await import('../utils/logger.js')
+  logger.info('🧪 Iniciando test de Puppeteer...\n');
   
   try {
     // Configuración (igual que en mail.service.ts)
@@ -30,19 +31,19 @@ async function testPuppeteer() {
     
     // Si existe PUPPETEER_EXECUTABLE_PATH, úsalo
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      console.log('✅ Usando Chromium del sistema:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      logger.info({ path: process.env.PUPPETEER_EXECUTABLE_PATH }, '✅ Usando Chromium del sistema')
       launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     } else {
-      console.log('⚠️  No se encontró PUPPETEER_EXECUTABLE_PATH, usando Chrome de Puppeteer');
+      logger.warn('⚠️  No se encontró PUPPETEER_EXECUTABLE_PATH, usando Chrome de Puppeteer');
     }
     
-    console.log('📦 Lanzando navegador...');
+  logger.info('📦 Lanzando navegador...');
     const browser = await puppeteer.launch(launchOptions);
     
-    console.log('✅ Navegador lanzado exitosamente!');
-    console.log('   Versión:', await browser.version());
+  logger.info('✅ Navegador lanzado exitosamente!')
+  logger.info({ version: await browser.version() }, 'Browser version')
     
-    console.log('\n📄 Generando PDF de prueba...');
+  logger.info('\n📄 Generando PDF de prueba...');
     const page = await browser.newPage();
     
     // HTML de prueba
@@ -100,35 +101,25 @@ async function testPuppeteer() {
       }
     });
     
-    console.log('✅ PDF generado exitosamente!');
-    console.log('   Tamaño:', Math.round(pdf.length / 1024), 'KB');
+  logger.info('✅ PDF generado exitosamente!')
+  logger.info({ sizeKb: Math.round(pdf.length / 1024) }, 'PDF size')
     
     // Guardar PDF (opcional)
     const fs = require('fs');
     const path = require('path');
     const outputPath = path.join(process.cwd(), 'test-puppeteer.pdf');
     fs.writeFileSync(outputPath, pdf);
-    console.log('💾 PDF guardado en:', outputPath);
+  logger.info({ outputPath }, '💾 PDF guardado en')
     
     await browser.close();
-    console.log('\n🎉 Test completado exitosamente!\n');
-    console.log('✅ Puppeteer está funcionando correctamente en este entorno.');
-    console.log('✅ Los PDFs de facturas deberían generarse sin problemas.\n');
+  logger.info('\n🎉 Test completado exitosamente!\n')
+  logger.info('✅ Puppeteer está funcionando correctamente en este entorno.')
+  logger.info('✅ Los PDFs de facturas deberían generarse sin problemas.\n')
     
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Error en el test de Puppeteer:\n');
-    console.error(error);
-    console.error('\n📋 Troubleshooting:');
-    console.error('1. Verifica que Chromium esté instalado en Alpine:');
-    console.error('   apk add chromium chromium-chromedriver');
-    console.error('2. Verifica las variables de entorno:');
-    console.error('   PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser');
-    console.error('   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true');
-    console.error('3. Si estás en Docker, asegúrate de tener las flags:');
-    console.error('   --no-sandbox --disable-setuid-sandbox');
-    console.error('\n🔗 Más info: https://pptr.dev/troubleshooting\n');
-    
+    logger.error({ err: error }, '❌ Error en el test de Puppeteer')
+    logger.error('📋 Troubleshooting: 1) Verifica que Chromium esté instalado: apk add chromium chromium-chromedriver; 2) Verifica variables de entorno: PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser; PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true; 3) Si estás en Docker, usa flags --no-sandbox --disable-setuid-sandbox; Más info: https://pptr.dev/troubleshooting')
     process.exit(1);
   }
 }

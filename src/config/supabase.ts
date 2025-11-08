@@ -11,48 +11,12 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from './en
  * @module config/supabase
  */
 
-// DEBUG: Verificar todas las variables de entorno
-import { env } from './env.js'
-
-console.log('=== ENV VARIABLES DEBUG ===')
-console.log('NODE_ENV:', env.NODE_ENV)
-console.log('PORT:', env.PORT)
-console.log('')
-console.log('--- Database ---')
-console.log('SUPABASE_URL:', env.SUPABASE_URL)
-console.log('SUPABASE_ANON_KEY exists:', !!env.SUPABASE_ANON_KEY)
-console.log('SUPABASE_ANON_KEY length:', env.SUPABASE_ANON_KEY?.length)
-console.log('SUPABASE_SERVICE_ROLE_KEY exists:', !!env.SUPABASE_SERVICE_ROLE_KEY)
-console.log('SUPABASE_SERVICE_ROLE_KEY length:', env.SUPABASE_SERVICE_ROLE_KEY?.length)
-console.log('SUPABASE_SERVICE_ROLE_KEY starts with eyJ:', env.SUPABASE_SERVICE_ROLE_KEY?.startsWith('eyJ'))
-console.log('')
-console.log('--- Redis ---')
-console.log('REDIS_URL:', env.REDIS_URL || 'not set')
-console.log('UPSTASH_REDIS_REST_URL:', env.UPSTASH_REDIS_REST_URL || 'not set')
-console.log('UPSTASH_REDIS_REST_TOKEN exists:', !!env.UPSTASH_REDIS_REST_TOKEN)
-console.log('')
-console.log('--- Auth & URLs ---')
-console.log('API_URL:', env.API_URL || 'not set')
-console.log('APP_REDIRECT_URL:', env.APP_REDIRECT_URL || 'not set')
-console.log('POST_LOGOUT_REDIRECT_URL:', env.POST_LOGOUT_REDIRECT_URL || 'not set')
-console.log('FRONTEND_URL:', env.FRONTEND_URL || 'not set')
-console.log('CSRF_COOKIE:', env.CSRF_COOKIE)
-console.log('REFRESH_TOKEN_TTL_DAYS:', env.REFRESH_TOKEN_TTL_DAYS)
-console.log('')
-console.log('--- Storage ---')
-console.log('BUCKET_ACCESS_ID exists:', !!env.BUCKET_ACCESS_ID)
-console.log('BUCKET_ACCESS_KEY exists:', !!env.BUCKET_ACCESS_KEY)
-console.log('')
-console.log('Mode:', env.NODE_ENV !== 'production' ? '🧪 SANDBOX (will use TEST token)' : '🚀 PRODUCTION')
-console.log('')
-console.log('--- Logging ---')
-console.log('LOG_LEVEL:', env.LOG_LEVEL)
-console.log('')
-console.log('--- Runtime ---')
-console.log('Node version:', process.version)
-console.log('globalThis.fetch available:', typeof globalThis.fetch !== 'undefined')
-console.log('============================')
-console.log('')
+// DEBUG: Verificar todas las variables de entorno (comentado en producción)
+// import { env } from './env.js'
+// console.log('=== ENV VARIABLES DEBUG ===')
+// console.log('NODE_ENV:', env.NODE_ENV)
+// console.log('PORT:', env.PORT)
+// ... etc
 
 /**
  * Cliente Supabase para operaciones del lado cliente

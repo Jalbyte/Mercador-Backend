@@ -9,17 +9,18 @@
 
 import { sendOrderEmail } from '../services/mail.service.js'
 import { FRONTEND_URL } from '../config/env.js'
+import { logger } from '../utils/logger.js'
 
 const TEST_EMAIL = process.env.TEST_EMAIL
 
 if (!TEST_EMAIL) {
-  console.error('❌ Error: Debes proporcionar TEST_EMAIL')
-  console.log('Uso: TEST_EMAIL=tu@email.com npm run test:keys-email')
+  logger.error('❌ Error: Debes proporcionar TEST_EMAIL')
+  logger.info('Uso: TEST_EMAIL=tu@email.com npm run test:keys-email')
   process.exit(1)
 }
 
 async function testKeysEmail() {
-  console.log('🧪 Probando email con claves adjuntas\n')
+  logger.info('🧪 Probando email con claves adjuntas\n')
 
   // Datos de prueba
   const orderId = '12345'
@@ -66,9 +67,9 @@ async function testKeysEmail() {
   keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
   keysFileContent += `${'='.repeat(64)}\n`
 
-  console.log('📄 Contenido del archivo de claves:')
-  console.log(keysFileContent)
-  console.log('\n📧 Enviando email...\n')
+  logger.info('📄 Contenido del archivo de claves:')
+  logger.debug({ keysFileContent })
+  logger.info('\n📧 Enviando email...\n')
 
   try {
     // URL para el template de email (notificación simple)
@@ -115,17 +116,17 @@ async function testKeysEmail() {
       ]
     })
 
-    console.log('✅ Email enviado exitosamente!')
-    console.log('\n📝 Próximos pasos:')
-    console.log('  1. Revisa tu bandeja de entrada:', TEST_EMAIL)
-    console.log('  2. Busca el archivo adjunto "claves-orden-' + orderId + '.txt"')
-    console.log('  3. Verifica que el email muestre el mensaje de claves adjuntas')
-    console.log('  4. Revisa spam/promociones si no lo ves en 1-2 minutos')
+  logger.info('✅ Email enviado exitosamente!')
+  logger.info('\n📝 Próximos pasos:')
+  logger.info({ TEST_EMAIL }, 'Revisa tu bandeja de entrada')
+  logger.info({ filename: `claves-orden-${orderId}.txt` }, 'Busca el archivo adjunto')
+  logger.info('Verifica que el email muestre el mensaje de claves adjuntas')
+  logger.info('Revisa spam/promociones si no lo ves en 1-2 minutos')
     
   } catch (error) {
-    console.error('❌ Error enviando email:', error)
+    logger.error({ err: error }, '❌ Error enviando email')
     process.exit(1)
   }
 }
 
-testKeysEmail().catch(console.error)
+testKeysEmail().catch((err) => logger.error({ err }, 'testKeysEmail unexpected error'))

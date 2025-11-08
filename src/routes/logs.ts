@@ -350,11 +350,6 @@ logRoutes.openapi(
             const logLines = await readLogFile(type as LogType, maxLines);
             const fileInfo = await getLogFileInfo(type as LogType);
 
-            logger.info(
-                { userId: c.get('userId'), logType: type, lines: maxLines },
-                'Logs consultados'
-            );
-
             return c.json({
                 success: true,
                 data: {

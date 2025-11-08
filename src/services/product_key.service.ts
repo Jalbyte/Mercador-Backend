@@ -116,7 +116,8 @@ export async function assignKeysToUser(product_id: string, user_id: string, coun
     .from('product_keys')
     .select('*')
     .eq('product_id', product_id)
-    .or('user_id.is.null,status.eq.available')
+    .is('user_id', null)
+    .eq('status', 'enabled')
     .limit(count)
 
   if (fetchError) {

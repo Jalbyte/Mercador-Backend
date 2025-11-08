@@ -10,8 +10,23 @@
  * - ✅ Login con email/contraseña y magic links
  * - ✅ Recuperación y actualización de contraseñas
  * - ✅ Verificación de email y códigos de verificación
- * - ✅ Logout y limpieza de sesiones
- * - ✅ Refresh de tokens JWT
+ * - ✅ Logout y limpieza de se    const csrf = issueCsrfCookie()
+    cookies.push(csrf)
+    
+    logger.info('[Session] ✅ Sesión establecida correctamente');
+    return c.json({ 
+      success: true, 
+      message: 'Sesión establecida correctamente',
+      user: userData.user 
+    }, 200, {
+      'Set-Cookie': cookies,
+    })
+  } catch (err) {
+    logger.error({ err }, '[Session] Error estableciendo sesión');
+    const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
+    return c.json({ success: false, error: errorMessage }, 500)
+  }
+});resh de tokens JWT
  * - ✅ Manejo de cookies de sesión seguras
  * - ✅ Protección CSRF
  *
@@ -41,11 +56,12 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import jwt from 'jsonwebtoken'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
 // Renombrado para mayor claridad, asumiendo que user.service.js exporta las funciones de auth.ts
-import * as userService from '../services/user.service.js'
-import { clearCookie, clearSessionCookie } from '../services/user.service.js'
+import { NODE_ENV, REFRESH_TOKEN_TTL_DAYS } from '../config/env.js'
 import { supabase } from '../config/supabase.js'
-import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
+import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
+import * as userService from '../services/user.service.js'
+import { clearSessionCookie } from '../services/user.service.js'
 import { logger } from '../utils/logger.js'
 
 const authRoutes = new OpenAPIHono()
@@ -134,10 +150,10 @@ const createSessionCookie = (accessToken: string): string => {
       ttl = Math.max(60, Math.min(decoded.exp - now - 30, 6 * 60 * 60));
     }
   } catch (err) {
-    console.error("Failed to decode JWT:", err);
+    logger.error({ err }, 'Failed to decode JWT')
   }
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = NODE_ENV === 'production';
   const accessCookie = [
     `sb_access_token=${accessToken}`,
     `HttpOnly`,
@@ -235,15 +251,6 @@ authRoutes.openapi(loginRoute, async (c) => {
 
     const result = await userService.loginWithEmail(body.email, body.password);
 
-    // Si la cuenta está eliminada, devolver flag especial
-    if (result.accountDeleted) {
-      return c.json({
-        success: false,
-        accountDeleted: true,
-        message: 'La cuenta está eliminada. ¿Desea restaurarla y continuar?',
-      }, 403);
-    }
-
     if (!result.session) throw new Error('No se pudo iniciar sesión');
 
     // Si requiere MFA, devolver respuesta especial sin cookies de sesión completa
@@ -259,12 +266,12 @@ authRoutes.openapi(loginRoute, async (c) => {
 
     // Login completo sin MFA
     const sessionCookie = createSessionCookie(result.session.access_token);
-    const isProduction = process.env.NODE_ENV === 'production'
+    const isProduction = NODE_ENV === 'production'
     const refreshCookie = [
       `sb_refresh_token=${result.session.refresh_token}`,
       `HttpOnly`,
       `Path=/auth`,
-      `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+      `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`
     ].filter(Boolean).join('; ')
@@ -285,6 +292,16 @@ authRoutes.openapi(loginRoute, async (c) => {
       'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
     });
   } catch (err) {
+    // Si el servicio lanzó un error indicando cuenta eliminada, devolver respuesta clara para restauración
+    if (err instanceof Error && /deleted/i.test(err.message)) {
+      logger.info({ err }, '[Auth] Login attempt for deleted account');
+      return c.json({
+        success: false,
+        accountDeleted: true,
+        message: 'La cuenta está eliminada. ¿Desea restaurarla y continuar?',
+      }, 403);
+    }
+
     logger.error(err);
     return c.json({ success: false, error: 'Email o contraseña incorrectos' }, 401);
   }
@@ -327,7 +344,7 @@ authRoutes.openapi(logoutRoute, async (c) => {
   // Aquí, lo importante es eliminar la cookie HttpOnly del navegador.
   const cookie = clearSessionCookie();
   // Clear refresh cookie as well
-  const isProduction = process.env.NODE_ENV === 'production'
+  const isProduction = NODE_ENV === 'production'
   const clearRefresh = [
     `sb_refresh_token=;`,
     `HttpOnly`,
@@ -406,11 +423,11 @@ authRoutes.openapi(updatePasswordRoute, async (c) => {
     // El authMiddleware ya validó el token y puso userId en el contexto
     const userId = c.get('userId') as string;
     const token = getTokenFromRequest(c);
-    
+
     if (!userId || !token) {
       return c.json({ success: false, error: 'No autenticado' }, 401);
     }
-    
+
     const { newPassword } = c.req.valid('json');
     await userService.updatePassword(token, newPassword);
     return c.json({ success: true, message: 'Tu contraseña ha sido actualizada.' }, 200);
@@ -437,18 +454,18 @@ authRoutes.openapi(meRoute, async (c) => {
   try {
     // El authMiddleware ya validó el token y puso userId en el contexto
     const userId = c.get('userId') as string;
-    
+
     if (!userId) {
       return c.json({ success: false, error: 'No autenticado' }, 401);
     }
-    
+
     // Extraer token para la consulta autenticada
     const token = getTokenFromRequest(c);
-    
+
     const userProfile = await userService.getUserById(userId, token);
     return c.json({ success: true, data: userProfile });
   } catch (err) {
-    console.error('Error fetching user profile:', err);
+    logger.error({ err }, 'Error fetching user profile');
     return c.json({ success: false, error: 'No se pudo obtener el perfil del usuario' }, 401);
   }
 });
@@ -471,12 +488,12 @@ authRoutes.openapi(refreshRoute, async (c) => {
     const access = session?.access_token!
     const refresh = session?.refresh_token!
     const accessCookie = createSessionCookie(access) // cookie de acceso con Path=/
-    const isProduction = process.env.NODE_ENV === 'production'
+    const isProduction = NODE_ENV === 'production'
     const refreshCookie = [
       `sb_refresh_token=${refresh}`,
       `HttpOnly`,
       `Path=/auth`,
-      `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+      `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`
     ].filter(Boolean).join('; ')
@@ -529,11 +546,11 @@ authRoutes.openapi(sessionRoute, async (c) => {
     // Validar el access_token con Supabase
     const { data: userData, error: userError } = await userService.getUserByAccessToken(access_token)
     if (userError || !userData?.user) {
-      console.error('[Session] Token inválido:', userError?.message)
+      logger.error({ err: userError }, '[Session] Token inválido');
       return c.json({ success: false, error: 'Token inválido o expirado' }, 401)
     }
 
-    console.log('[Session] Token validado para usuario:', userData.user.id)
+    logger.info({ userId: userData.user.id }, '[Session] Token validado para usuario');
 
     // Decodificar el token para obtener el expires_in
     let expiresIn = 3600 // default 1 hora
@@ -544,33 +561,33 @@ authRoutes.openapi(sessionRoute, async (c) => {
         expiresIn = Math.max(60, decoded.exp - now)
       }
     } catch (err) {
-      console.error('[Session] Error decodificando JWT:', err)
+      logger.error({ err }, '[Session] Error decodificando JWT');
     }
 
     // Guardar la sesión en Redis
     const redisService = await import('../services/redis.service.js')
     await redisService.redisService.set(`session:${access_token}`, userData.user.id, expiresIn)
-    console.log('[Session] Sesión guardada en Redis para usuario:', userData.user.id)
+    logger.info({ userId: userData.user.id }, '[Session] Sesión guardada en Redis para usuario');
 
     // Guardar refresh token si está presente
     if (refresh_token) {
-      const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
+      const refreshTtlSeconds = (parseInt(NODE_ENV || '7', 10) || 7) * 24 * 60 * 60
       await redisService.redisService.set(`refresh:${refresh_token}`, userData.user.id, refreshTtlSeconds)
-      console.log('[Session] Refresh token guardado en Redis')
+      logger.info('[Session] Refresh token guardado en Redis');
     }
 
     // Establecer cookies de sesión
     const accessCookie = createSessionCookie(access_token)
-    const isProduction = process.env.NODE_ENV === 'production'
-    
+    const isProduction = NODE_ENV === 'production'
+
     const cookies = [accessCookie]
-    
+
     if (refresh_token) {
       const refreshCookie = [
         `sb_refresh_token=${refresh_token}`,
         `HttpOnly`,
         `Path=/auth`,
-        `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+        `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
         isProduction ? 'Secure' : '',
         `SameSite=Lax`
       ].filter(Boolean).join('; ')
@@ -590,17 +607,17 @@ authRoutes.openapi(sessionRoute, async (c) => {
 
     const csrf = issueCsrfCookie()
     cookies.push(csrf)
-    
-    console.log('[Session] ✅ Sesión establecida correctamente')
-    return c.json({ 
-      success: true, 
+
+  logger.info('[Session] ✅ Sesión establecida correctamente')
+    return c.json({
+      success: true,
       message: 'Sesión establecida correctamente',
-      user: userData.user 
+      user: userData.user
     }, 200, {
       'Set-Cookie': cookies,
     })
   } catch (err) {
-    console.error('[Session] Error estableciendo sesión:', err)
+    logger.error({ err }, '[Session] Error estableciendo sesión:')
     const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
     return c.json({ success: false, error: errorMessage }, 500)
   }
@@ -622,12 +639,12 @@ authRoutes.openapi(enrollMfaRoute, async (c) => {
   if (!token) return c.json({ success: false, error: 'No autenticado' }, 401)
   const resp = await userService.enrollMfa(token)
   if (resp.error) return c.json({ success: false, error: resp.error.message }, 400)
-  return c.json({ 
-    success: true, 
-    factorId: resp.data.id, 
+  return c.json({
+    success: true,
+    factorId: resp.data.id,
     qrCode: resp.data.totp.qr_code,
     secret: resp.data.totp.secret,
-    uri: resp.data.totp.uri 
+    uri: resp.data.totp.uri
   })
 })
 
@@ -703,7 +720,7 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       if (!data?.access_token) missingFields.push('access_token');
       if (!data?.refresh_token) missingFields.push('refresh_token');
       if (!data?.user?.id) missingFields.push('user.id');
-      
+
       throw new Error(`Missing required fields in MFA response: ${missingFields.join(', ')}`);
     }
 
@@ -728,12 +745,12 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
 
     // Crear cookies de sesión
     const sessionCookie = createSessionCookie(sessionData.session.access_token)
-    const isProduction = process.env.NODE_ENV === 'production'
+    const isProduction = NODE_ENV === 'production'
     const refreshCookie = [
       `sb_refresh_token=${sessionData.session.refresh_token}`,
       `HttpOnly`,
       `Path=/auth`,
-      `Max-Age=${60 * 60 * 24 * (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7)}`,
+      `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`
     ].filter(Boolean).join('; ')

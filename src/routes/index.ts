@@ -67,7 +67,6 @@ export {
   cartRoutes,
   orderRoutes,
   profileRoutes,
-  // paymentRoutes, // ⚠️ Mercado Pago deshabilitado
   wompiRoutes,
   adminUserRoutes,
   adminStatsRoutes,
