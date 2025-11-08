@@ -2,7 +2,7 @@
  * Rutas de autenticación para la aplicación Mercador
  *
  * Este módulo define todas las rutas relacionadas con autenticación de usuarios,
- * incluyendo registro, login, recuperación de contraseña, y gestión de sesiones.
+ * incluyendo registro, login, recuperación de contraseña y gestión de sesiones.
  * Utiliza Supabase Auth para la autenticación y Zod para validación de datos.
  *
  * Funcionalidades implementadas:
@@ -10,23 +10,8 @@
  * - ✅ Login con email/contraseña y magic links
  * - ✅ Recuperación y actualización de contraseñas
  * - ✅ Verificación de email y códigos de verificación
- * - ✅ Logout y limpieza de se    const csrf = issueCsrfCookie()
-    cookies.push(csrf)
-    
-    logger.info('[Session] ✅ Sesión establecida correctamente');
-    return c.json({ 
-      success: true, 
-      message: 'Sesión establecida correctamente',
-      user: userData.user 
-    }, 200, {
-      'Set-Cookie': cookies,
-    })
-  } catch (err) {
-    logger.error({ err }, '[Session] Error estableciendo sesión');
-    const errorMessage = err instanceof Error ? err.message : 'Error inesperado'
-    return c.json({ success: false, error: errorMessage }, 500)
-  }
-});resh de tokens JWT
+ * - ✅ Logout y limpieza de sesión
+ * - ✅ Refresh de tokens JWT
  * - ✅ Manejo de cookies de sesión seguras
  * - ✅ Protección CSRF
  *
@@ -36,19 +21,7 @@
  * ```typescript
  * import authRoutes from './routes/auth'
  *
- * // Registrar rutas de autenticación
  * app.route('/auth', authRoutes)
- *
- * // Rutas disponibles:
- * // POST /auth/signup - Registro de usuario
- * // POST /auth/login - Login con email/contraseña
- * // POST /auth/magic-link - Login con magic link
- * // POST /auth/refresh - Refresh de token
- * // POST /auth/logout - Logout
- * // POST /auth/reset-password - Solicitar reset de contraseña
- * // POST /auth/update-password - Actualizar contraseña
- * // POST /auth/verify-email - Verificar email
- * // POST /auth/verify-code - Verificar código
  * ```
  */
 
@@ -65,6 +38,11 @@ import { clearSessionCookie } from '../services/user.service.js'
 import { logger } from '../utils/logger.js'
 
 const authRoutes = new OpenAPIHono()
+
+
+const DOMAIN = NODE_ENV === 'production'
+  ? '.mercador.app' // ← cambia por tu dominio real
+  : 'localhost';
 
 // Helper: Extrae token desde Authorization header o cookie sb_access_token
 function getTokenFromRequest(c: any): string | undefined {
@@ -141,29 +119,28 @@ const UpdatePasswordSchema = z.object({
 // --- Helper para Cookies ---
 
 const createSessionCookie = (accessToken: string): string => {
-  let ttl = 3600; // 1 hora por defecto
+  let ttl = 3600 // 1 hora por defecto
   try {
-    const decoded = jwt.decode(accessToken) as { exp?: number } | null;
+    const decoded = jwt.decode(accessToken) as { exp?: number } | null
     if (decoded?.exp) {
-      const now = Math.floor(Date.now() / 1000);
-      // Establece TTL para que expire 30s antes que el token real, max 6 horas
-      ttl = Math.max(60, Math.min(decoded.exp - now - 30, 6 * 60 * 60));
+      const now = Math.floor(Date.now() / 1000)
+      ttl = Math.max(60, Math.min(decoded.exp - now - 30, 6 * 60 * 60))
     }
   } catch (err) {
     logger.error({ err }, 'Failed to decode JWT')
   }
 
-  const isProduction = NODE_ENV === 'production';
-  const accessCookie = [
+  const isProduction = NODE_ENV === 'production'
+  const cookieParts = [
     `sb_access_token=${accessToken}`,
     `HttpOnly`,
     `Path=/`,
     `Max-Age=${ttl}`,
     `SameSite=Lax`,
-    isProduction ? 'Secure' : ''
-  ].filter(Boolean).join('; ')
-
-  return accessCookie
+    isProduction ? 'Secure' : '',
+    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+  ].filter(Boolean)
+  return cookieParts.join('; ')
 }
 
 
@@ -608,7 +585,7 @@ authRoutes.openapi(sessionRoute, async (c) => {
     const csrf = issueCsrfCookie()
     cookies.push(csrf)
 
-  logger.info('[Session] ✅ Sesión establecida correctamente')
+    logger.info({ userId: userData.user.id }, '[Session] ✅ Sesión establecida correctamente')
     return c.json({
       success: true,
       message: 'Sesión establecida correctamente',
