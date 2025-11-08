@@ -60,6 +60,11 @@ export async function initRedis(logger: pino.Logger) {
         store.set(k, v)
         return 'OK'
       },
+      setEx: async (k: string, ttl: number, v: string) => {
+        store.set(k, v)
+        // En desarrollo no implementamos TTL real, solo guardamos
+        return 'OK'
+      },
       get: async (k: string) => store.get(k) ?? null,
       del: async (k: string) => (store.delete(k) ? 1 : 0),
       exists: async (k: string) => (store.has(k) ? 1 : 0),
