@@ -86,7 +86,7 @@ async function getCachedUser(token: string): Promise<CachedUser | null> {
     const raw = await client.get(`auth:token:${token}`)
     return raw ? (JSON.parse(raw) as CachedUser) : null
   } catch (err) {
-    logger.debug({ err }, 'Redis get cache failed (auth)')
+    logger.warn({ err }, 'Redis get cache failed (auth)')
     return null
   }
 }
@@ -111,7 +111,7 @@ async function setCachedUser(token: string, user: CachedUser, ttlSeconds: number
     const client = await initRedis(logger)
     await client.setEx(`auth:token:${token}`, ttlSeconds, JSON.stringify(user))
   } catch (err) {
-    logger.debug({ err }, 'Redis set cache failed (auth)')
+    logger.warn({ err }, 'Redis set cache failed (auth)')
   }
 }
 
@@ -191,6 +191,7 @@ export async function authMiddleware(c: Context, next: Next) {
         .single();
       isDeleted = profile?.is_deleted === true;
     } catch (e) {
+      logger.error({ err: e }, 'Failed to check is_deleted status')
       // Si falla la consulta, por seguridad denegar acceso
       return c.json({ success: false, error: 'No se pudo verificar el estado de la cuenta' }, 403);
     }

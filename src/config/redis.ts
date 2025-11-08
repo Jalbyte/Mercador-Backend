@@ -24,6 +24,34 @@ let redisClient: any = null
 let mode: 'tcp' | 'rest' | null = null
 
 /**
+ * Crea un stub de Redis en memoria para desarrollo/fallback
+ * 
+ * Esta función crea un cliente Redis simulado que mantiene datos en memoria
+ * sin necesidad de una conexión externa. Útil para desarrollo local y como
+ * fallback cuando la conexión TCP falla.
+ * 
+ * @returns Cliente Redis stub con métodos básicos implementados
+ */
+function createRedisStub() {
+  const store = new Map<string, string>()
+  return {
+    set: async (k: string, v: string, opts?: any) => {
+      store.set(k, v)
+      return 'OK'
+    },
+    setEx: async (k: string, ttl: number, v: string) => {
+      store.set(k, v)
+      // En desarrollo no implementamos TTL real, solo guardamos
+      return 'OK'
+    },
+    get: async (k: string) => store.get(k) ?? null,
+    del: async (k: string) => (store.delete(k) ? 1 : 0),
+    exists: async (k: string) => (store.has(k) ? 1 : 0),
+    quit: async () => { },
+  }
+}
+
+/**
  * Inicializa la conexión a Redis según la configuración disponible
  *
  * Esta función configura Redis de manera inteligente basándose en las variables
@@ -44,32 +72,14 @@ let mode: 'tcp' | 'rest' | null = null
  * ```
  */
 export async function initRedis(logger: pino.Logger) {
-  if (redisClient) return redisClient
+  if (redisClient) {
+    return redisClient
+  }
 
   // In development, skip external Redis and use a lightweight in-memory stub
   if (NODE_ENV === 'development') {
     logger.info('🧪 NODE_ENV=development — using in-memory Redis stub (no external connection)')
-    const store = new Map<string, string>()
-    const stub = {
-      // tcp-style methods
-      set: async (k: string, v: string, opts?: any) => {
-        store.set(k, v)
-        return 'OK'
-      },
-      setEx: async (k: string, ttl: number, v: string) => {
-        store.set(k, v)
-        // En desarrollo no implementamos TTL real, solo guardamos
-        return 'OK'
-      },
-      get: async (k: string) => store.get(k) ?? null,
-      del: async (k: string) => (store.delete(k) ? 1 : 0),
-      exists: async (k: string) => (store.has(k) ? 1 : 0),
-      quit: async () => { },
-      // rest client compatibility (Upstash)
-      // keep method names compatible: set(key, value) or set(key, value, { ex })
-    }
-    redisClient = stub
-    // mode remains null to indicate no external Redis mode
+    redisClient = createRedisStub()
     return redisClient
   }
 
@@ -91,7 +101,7 @@ export async function initRedis(logger: pino.Logger) {
       socket: {
         family: 4, // Forzar IPv4
         reconnectStrategy: (retries) => Math.min(retries * 50, 2000),
-        connectTimeout: 15000,
+        connectTimeout: 5000, // Reducir timeout a 5 segundos
       },
     });
     
@@ -105,36 +115,47 @@ export async function initRedis(logger: pino.Logger) {
     })
 
     try {
-      await client.connect()
+      // Timeout manual de 3 segundos
+      const timeoutMs = 3000
+      let timeoutId: NodeJS.Timeout
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Connection timeout after ${timeoutMs}ms`))
+        }, timeoutMs)
+      })
+      
+      const connectPromise = client.connect().then(() => {
+        clearTimeout(timeoutId)
+        return client
+      })
+      
+      await Promise.race([connectPromise, timeoutPromise])
+      
       logger.info(`✅ Connected to Redis at ${REDIS_URL.replace(/:[^:@]+@/, ':****@')} (TCP mode)`)
       redisClient = client
       mode = 'tcp'
       return client
     } catch (err: any) {
       logger.warn({ err: err.message }, '⚠️ Redis TCP unreachable, using in-memory stub for local development')
-      // No lanzar error, continuar al fallback
+      
+      // Cerrar el cliente fallido para evitar reconexiones
+      try {
+        client.disconnect()
+      } catch (e) {
+        // Ignorar errores al cerrar
+      }
+      
+      // Crear y retornar stub inmediatamente
+      redisClient = createRedisStub()
+      return redisClient
     }
   }
 
   // Si llegamos aquí, no hay configuración de Redis válida en producción
   // Fallback a stub en memoria para desarrollo/testing local
   logger.warn('⚠️ No Redis configuration found. Using in-memory stub as fallback.')
-  const store = new Map<string, string>()
-  const stub = {
-    set: async (k: string, v: string, opts?: any) => {
-      store.set(k, v)
-      return 'OK'
-    },
-    setEx: async (k: string, ttl: number, v: string) => {
-      store.set(k, v)
-      return 'OK'
-    },
-    get: async (k: string) => store.get(k) ?? null,
-    del: async (k: string) => (store.delete(k) ? 1 : 0),
-    exists: async (k: string) => (store.has(k) ? 1 : 0),
-    quit: async () => { },
-  }
-  redisClient = stub
+  redisClient = createRedisStub()
   return redisClient
 }
 
