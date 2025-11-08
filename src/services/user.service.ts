@@ -15,6 +15,7 @@ import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { redisService } from '../services/redis.service.js'
 import { Context } from 'hono'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
+import { logger } from '../utils/logger.js'
 
 /**
  * Interfaz que representa el perfil de un usuario en el sistema.
@@ -186,7 +187,7 @@ export async function adminUpdateUser(adminId: string, userId: string, updateDat
     .select()
     .single()
   if (error) {
-    console.error('Supabase update error:', error);
+    logger.error({ error }, 'Supabase update error')
     throw new Error('Error al actualizar usuario')
   }
   return user as UserProfile
@@ -202,7 +203,7 @@ export async function adminUpdateUser(adminId: string, userId: string, updateDat
 export async function adminDeleteUser(adminId: string, userId: string, accessToken?: string): Promise<{ success: boolean }> {
   // Use admin client when available to bypass RLS for admin operations
   const client = supabaseAdmin ?? supabase
-  console.log('[user.service] adminDeleteUser starting', { adminId, userId, usingAdminClient: !!supabaseAdmin })
+  logger.debug({ adminId, userId, usingAdminClient: !!supabaseAdmin }, '[user.service] adminDeleteUser starting')
 
   // Verificar admin
   const { data: adminProfile, error: adminError } = await client
@@ -212,17 +213,17 @@ export async function adminDeleteUser(adminId: string, userId: string, accessTok
     .single()
 
   if (adminError || !adminProfile) {
-    console.error('[user.service] adminDeleteUser failed to verify admin', { adminId, adminError })
+    logger.error({ adminId, adminError }, '[user.service] adminDeleteUser failed to verify admin')
     throw new Error('No autorizado')
   }
   if (adminProfile.role !== 'admin') {
-    console.error('[user.service] adminDeleteUser user is not admin', { adminId, role: adminProfile.role })
+    logger.error({ adminId, role: adminProfile.role }, '[user.service] adminDeleteUser user is not admin')
     throw new Error('No autorizado')
   }
 
   // Soft delete: marcar is_deleted=true (ajusta si tu tabla tiene otro campo)
   try {
-    console.log('[user.service] adminDeleteUser performing update', { targetUserId: userId })
+    logger.debug({ targetUserId: userId }, '[user.service] adminDeleteUser performing update')
     const { data, error } = await client
       .from('profiles')
       .update({ is_deleted: true })
@@ -230,17 +231,17 @@ export async function adminDeleteUser(adminId: string, userId: string, accessTok
       .select()
 
     if (error) {
-      console.error('[user.service] adminDeleteUser supabase error', { adminId, userId, error })
+      logger.error({ adminId, userId, error }, '[user.service] adminDeleteUser supabase error')
       // Try to include error details if present
       let details = ''
       try { details = JSON.stringify(error) } catch (_) { details = String(error) }
       throw new Error(`Error al eliminar usuario: ${details}`)
     }
 
-    console.log('[user.service] adminDeleteUser success', { adminId, userId, updatedRows: Array.isArray(data) ? data.length : (data ? 1 : 0) })
+    logger.info({ adminId, userId, updatedRows: Array.isArray(data) ? data.length : (data ? 1 : 0) }, '[user.service] adminDeleteUser success')
     return { success: true }
   } catch (err: any) {
-    console.error('[user.service] adminDeleteUser unexpected error', { adminId, userId, err: err && (err.stack || err.message || err) })
+    logger.error({ adminId, userId, err: err && (err.stack || err.message || err) }, '[user.service] adminDeleteUser unexpected error')
     throw new Error('Error al eliminar usuario')
   }
 }
@@ -301,7 +302,7 @@ export async function loginWithEmail(email: string, password: string) {
     }
   } catch (err: any) {
     // Ignorar errores al obtener el perfil adicional
-    console.error('Error fetching profile during login:', err)
+    logger.error({ err }, 'Error fetching profile during login')
   }
 
   // Si la cuenta está eliminada, rechazar el login (mantener 'deleted' en el mensaje para tests)
@@ -430,7 +431,7 @@ export async function refreshSession(refreshToken: string) {
         throw err
       }
       // Ignorar otros errores de perfil
-      console.error('Error checking profile during session refresh:', err)
+      logger.error({ err }, 'Error checking profile during session refresh')
     }
 
     await redisService.set(`session:${access_token}`, user.id, expires_in)
@@ -704,10 +705,9 @@ export async function updateUserProfile(
         const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
         updatePayload.image = publicUrl
       }
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('Failed to upload avatar', err)
+      }
+    } catch (err) {
+    logger.error({ err }, 'Failed to upload avatar')
     let details = ''
     try {
       if (err instanceof Error) details = err.message || String(err)
@@ -716,9 +716,7 @@ export async function updateUserProfile(
       details = String(err)
     }
     throw new Error(`Failed to upload avatar: ${details}`)
-  }
-
-  if (Object.keys(updatePayload).length === 0) {
+  }  if (Object.keys(updatePayload).length === 0) {
     const { data: existingProfile, error } = await client
       .from('profiles')
       .select('*')
@@ -744,8 +742,7 @@ export async function updateUserProfile(
       if (err instanceof Error) details = err.message || String(err)
       else details = JSON.stringify(err)
     } catch { details = String(err) }
-    // eslint-disable-next-line no-console
-    console.error('Failed to update profile', { userId, details })
+    logger.error({ userId, details }, 'Failed to update profile')
     throw new Error(`Failed to update profile: ${details}`)
   }
 }
@@ -774,14 +771,14 @@ export async function softDeleteUser(userId: string, accessToken?: string): Prom
       .eq('id', userId)
 
     if (error) {
-      console.error('[user.service] softDeleteUser supabase error', { userId, error })
+      logger.error({ userId, error }, '[user.service] softDeleteUser supabase error')
       throw new Error(`Error al eliminar la cuenta: ${error?.message || JSON.stringify(error)}`)
     }
 
-    console.log('[user.service] softDeleteUser success', { userId, updated: !!data })
+    logger.info({ userId, updated: !!data }, '[user.service] softDeleteUser success')
     return { success: true }
   } catch (err: any) {
-    console.error('[user.service] softDeleteUser unexpected error', { userId, err: err && (err.stack || err.message || err) })
+    logger.error({ userId, err: err && (err.stack || err.message || err) }, '[user.service] softDeleteUser unexpected error')
     throw err
   }
 }
@@ -944,7 +941,7 @@ export async function getUserByAccessToken(access_token: string) {
       return { data: null, error: err }
     }
     // Si falla la consulta adicional, retornar solo los datos de auth
-    console.error('Error fetching additional user data:', err)
+    logger.error({ err }, 'Error fetching additional user data')
     return { data: authData, error: null }
   }
 }

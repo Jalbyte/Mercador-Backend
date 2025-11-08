@@ -44,6 +44,7 @@
 import { supabase } from '../config/supabase.js'
 import { supabaseAdmin } from '../config/supabase.js'
 import { createSupabaseClient } from './user.service.js'
+import { logger } from '../utils/logger.js'
 
 // Helper: returns current timestamp in local time with timezone offset
 // Example output: 2025-10-27T12:34:56-05:00
@@ -332,7 +333,7 @@ export async function updateOrderStatusWithPayment(
 ) {
   // Log del payment_id para trazabilidad
   if (paymentId) {
-    console.log(`💳 Order ${orderId} - Payment ID: ${paymentId}`);
+    logger.info({ orderId, paymentId }, 'Order payment ID updated')
   }
 
   // Usar cliente autenticado si se proporciona token, sino usar admin
@@ -456,7 +457,7 @@ export async function calculateOrderAccuracy(): Promise<{
       .select('*', { count: 'exact', head: true })
 
     if (ordersError) {
-      console.error('Error al obtener total de órdenes:', ordersError)
+      logger.error({ error: ordersError }, 'Error al obtener total de órdenes')
       throw ordersError
     }
 
@@ -476,9 +477,9 @@ export async function calculateOrderAccuracy(): Promise<{
         .eq('status', 'cancelled')
       
       errorCount = cancelledCount || 0
-      console.log('ℹ Tabla order_errors no encontrada, usando órdenes canceladas como proxy')
+      logger.info('Tabla order_errors no encontrada, usando órdenes canceladas como proxy')
     } else if (errorsError) {
-      console.error('Error al obtener errores de órdenes:', errorsError)
+      logger.error({ error: errorsError }, 'Error al obtener errores de órdenes')
       errorCount = 0
     } else {
       errorCount = errorOrdersCount || 0
@@ -499,21 +500,19 @@ export async function calculateOrderAccuracy(): Promise<{
       meetsTarget: accuracy >= 95
     }
 
-    // Log con colores y formato
-    console.log('\n' + '='.repeat(60))
-    console.log('MÉTRICA: EXACTITUD DEL PEDIDO (Order Accuracy)')
-    console.log('='.repeat(60))
-    console.log(`Total de pedidos:        ${result.totalOrders}`)
-    console.log(`Pedidos correctos:       ${result.successfulOrders}`)
-    console.log(`Pedidos con error:       ${result.errorOrders}`)
-    console.log('─'.repeat(60))
-    console.log(`Exactitud:               ${result.accuracy}%`)
-    console.log(`Target (>95%):           ${result.meetsTarget ? 'CUMPLE' : 'NO CUMPLE'}`)
-    console.log('='.repeat(60) + '\n')
+    // Log métrica de exactitud del pedido
+    logger.info({
+      accuracy: result.accuracy,
+      totalOrders: result.totalOrders,
+      successfulOrders: result.successfulOrders,
+      errorOrders: result.errorOrders,
+      meetsTarget: result.meetsTarget,
+      target: 95
+    }, 'MÉTRICA: EXACTITUD DEL PEDIDO (Order Accuracy)')
 
     return result
   } catch (error) {
-    console.error('Error al calcular exactitud del pedido:', error)
+    logger.error({ error }, 'Error al calcular exactitud del pedido')
     throw error
   }
 }
@@ -540,13 +539,13 @@ export async function logOrderError(
     if (error) {
       // Si la tabla no existe, solo log el error (no fallar)
       if (error.code === '42P01') {
-        console.warn('Tabla order_errors no existe. Considera crearla para tracking de errores.')
+        logger.warn('Tabla order_errors no existe. Considera crearla para tracking de errores.')
       } else {
-        console.error('Error al registrar error de orden:', error)
+        logger.error({ error }, 'Error al registrar error de orden')
       }
     }
   } catch (err) {
-    console.error('Error al guardar error de orden:', err)
+    logger.error({ err }, 'Error al guardar error de orden')
   }
 }
 

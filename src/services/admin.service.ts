@@ -26,6 +26,7 @@
 
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { createSupabaseClient } from './user.service.js'
+import { logger } from '../utils/logger.js'
 
 export interface DashboardStats {
   totalSales: number
@@ -269,7 +270,7 @@ export async function getAllOrdersAdmin(
   const { data: orders, error, count } = await query
 
   if (error) {
-    console.error('Error fetching admin orders:', error)
+    logger.error({ error }, 'Error fetching admin orders')
     throw new Error(`Failed to fetch orders: ${error.message}`)
   }
 

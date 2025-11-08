@@ -47,6 +47,7 @@
  */
 
 import { supabase, supabaseAdmin } from '../config/supabase.js'
+import { logger } from '../utils/logger.js'
 
 export interface ProductKey {
   id: string
@@ -81,9 +82,7 @@ export async function listProductKeys(product_id?: string): Promise<ProductKey[]
   const { data, error } = await query
 
   if (error) {
-    // Return empty array on error and log for debugging
-    // eslint-disable-next-line no-console
-    console.error('Failed to list product keys:', error)
+    logger.error({ error }, 'Failed to list product keys')
     return []
   }
 
@@ -136,7 +135,7 @@ export async function assignKeysToUser(product_id: string, user_id: string, coun
       .single()
 
     if (updErr) {
-      console.warn('Failed to assign key', key.id, updErr)
+      logger.warn({ keyId: key.id, error: updErr }, 'Failed to assign key')
       continue
     }
 

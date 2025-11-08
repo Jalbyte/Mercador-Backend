@@ -35,6 +35,7 @@
 
 import { supabase } from '../config/supabase.js'
 import { createSupabaseClient } from './user.service.js'
+import { logger } from '../utils/logger.js'
 
 export interface CartItem {
   id: number
@@ -151,7 +152,7 @@ export async function addToCart(userId: string, productId: number, quantity: num
 
   if (!product || product.stock_quantity < quantity) {
     const availableStock = product?.stock_quantity || 0;
-    console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`);
+    logger.error({ productId, quantity, availableStock }, 'Cantidad de producto sobrepasa límite de stock');
     throw new Error(`la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`)
   }
 
@@ -199,7 +200,7 @@ export async function addToCart(userId: string, productId: number, quantity: num
     
     if (newQuantity > product.stock_quantity) {
       const availableStock = product.stock_quantity || 0;
-      console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${newQuantity}. Disponible: ${availableStock}`);
+      logger.error({ productId, newQuantity, availableStock }, 'Nueva cantidad sobrepasa límite de stock al agregar al carrito');
       throw new Error(`la cantidad del producto sobrepasa su límite ${newQuantity}. Disponible: ${availableStock}`)
     }
     
@@ -296,7 +297,7 @@ export async function updateCartItem(userId: string, itemId: number, quantity: n
 
   if (!product || product.stock_quantity < quantity) {
     const availableStock = product?.stock_quantity || 0;
-    console.error(`❌ Error: la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`);
+    logger.error({ productId: cartItem.product_id, itemId, quantity, availableStock }, 'Cantidad de actualización sobrepasa límite de stock');
     throw new Error(`la cantidad del producto sobrepasa su límite ${quantity}. Disponible: ${availableStock}`)
   }
 

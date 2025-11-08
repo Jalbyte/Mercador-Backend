@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from './env.js'
+import { logger } from '../utils/logger.js';
 
 /**
  * Configuración de clientes Supabase para la aplicación Mercador
@@ -65,4 +66,4 @@ export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KE
 });
 
 // Debug: Imprimir las primeros caracteres de tu clave
-console.log('SERVICE_ROLE_KEY first 10 chars:', SUPABASE_SERVICE_ROLE_KEY?.substring(0, 10))
+logger.debug(`SERVICE_ROLE_KEY first 10 chars: ${SUPABASE_SERVICE_ROLE_KEY?.substring(0, 10)}`)

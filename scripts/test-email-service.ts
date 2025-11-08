@@ -56,10 +56,10 @@ async function testEmailService() {
 // Ejecutar test
 testEmailService()
   .then(() => {
-    console.log('🎉 Test completado!')
+    logger.info('Test completado!')
     process.exit(0)
   })
   .catch((error) => {
-    console.error('💥 Error inesperado:', error)
+    logger.error({ error }, 'Error inesperado')
     process.exit(1)
   })

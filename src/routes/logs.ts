@@ -31,6 +31,8 @@ logRoutes.use('*', authMiddleware);
 // Helper: Verificar si el usuario es admin
 function isAdmin(c: any): boolean {
     const role = c.get('userRole');
+    const userId = c.get('userId');
+    logger.info({ userId, role }, 'Checking admin role');
     return role === 'admin';
 }
 

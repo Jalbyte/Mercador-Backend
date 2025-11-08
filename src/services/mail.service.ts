@@ -3,6 +3,7 @@ import path from 'path'
 import { Readable } from 'stream'
 import { MAILGUN_API_KEY, MAILGUN_DOMAIN, ENABLE_PDF_ATTACH } from '../config/env.js'
 import { generateInvoicePDF, type InvoiceData } from './pdf.service.js'
+import { logger } from '../utils/logger.js'
 
 // dynamic imports for heavy / optional dependencies
 let Mailgun: any
@@ -142,7 +143,7 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
   // Generate PDF from invoice data if requested (usando PDFKit, no Puppeteer)
   if (attachPdf && templateQuery) {
     try {
-      console.log('📄 Generando PDF de factura con PDFKit...')
+      logger.info('Generando PDF de factura con PDFKit')
       
       // Extraer datos de la factura del templateQuery
       const invoiceData: InvoiceData = {
@@ -169,9 +170,9 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
         data: bufferToStream(pdf)
       })
       
-      console.log('✅ PDF de factura generado exitosamente (' + Math.round(pdf.length / 1024) + ' KB)')
+      logger.info({ sizeKB: Math.round(pdf.length / 1024) }, 'PDF de factura generado exitosamente')
     } catch (e: any) {
-      console.warn('⚠️ No se pudo generar PDF de factura:', (e && e.message) || e)
+      logger.warn({ err: e, message: (e && e.message) || e }, 'No se pudo generar PDF de factura')
     }
   }
 
@@ -202,20 +203,23 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
 
   try {
     const result = await mg.messages.create(MAILGUN_DOMAIN, message)
-    console.log('✉️ Order email sent successfully!')
-    console.log('  📧 To:', to)
-    console.log('  📝 Subject:', subject)
-    console.log('  🆔 Mailgun Message ID:', result.id)
-    console.log('  📊 Status:', result.status || 'queued')
-    console.log('  🔗 Check logs at: https://app.mailgun.com/app/sending/domains/' + MAILGUN_DOMAIN + '/logs')
+    logger.info({
+      to,
+      subject,
+      messageId: result.id,
+      status: result.status || 'queued',
+      domain: MAILGUN_DOMAIN
+    }, 'Order email sent successfully')
     return result
   } catch (err: any) {
-    console.error('❌ Failed to send order email!')
-    console.error('  Error:', (err && err.message) || err)
-    console.error('  Details:', JSON.stringify(err, null, 2))
-    console.error('  Domain:', MAILGUN_DOMAIN)
-    console.error('  From:', message.from)
-    console.error('  To:', to)
+    logger.error({
+      error: err,
+      message: (err && err.message) || err,
+      details: JSON.stringify(err, null, 2),
+      domain: MAILGUN_DOMAIN,
+      from: message.from,
+      to
+    }, 'Failed to send order email')
     throw err
   }
 }

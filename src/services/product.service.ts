@@ -52,6 +52,7 @@
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { SUPABASE_URL, BUCKET_ACCESS_ID, BUCKET_ACCESS_KEY } from '../config/env.js'
 import { createProductKey, CreateProductKeyData } from './product_key.service.js'
+import { logger } from '../utils/logger.js'
 
 export interface Product {
   id: string
@@ -161,8 +162,7 @@ export async function getProductWithKeys(id: string) {
     .eq('product_id', id)
 
   if (error) {
-    // eslint-disable-next-line no-console
-    console.error('Failed to fetch product keys for product', id, error)
+    logger.error({ productId: id, error }, 'Failed to fetch product keys for product')
     // still return product without keys on error
     return { ...product, product_keys: [] }
   }
@@ -230,11 +230,11 @@ export async function createProduct(productData: CreateProductData): Promise<Pro
       details = String(err)
     }
 
-    console.error('Failed to create product - supabase request error', {
+    logger.error({
       details,
-      SUPABASE_URL: SUPABASE_URL,
+      SUPABASE_URL,
       hasFetch: typeof globalThis.fetch !== 'undefined'
-    })
+    }, 'Failed to create product - supabase request error')
 
     throw new Error(`Failed to create product: ${details}`)
   }
@@ -271,8 +271,7 @@ export async function createProduct(productData: CreateProductData): Promise<Pro
         try { product.image_url = publicUrl } catch (e) { /* ignore */ }
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to upload image to storage (createProduct)', err)
+      logger.error({ err }, 'Failed to upload image to storage (createProduct)')
       throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
@@ -295,7 +294,7 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
 
   // Si frontend envía image as data URL, convertir y subirlo
   if (maybeDataUrl) {
-    console.log('📤 Processing data URL upload...')
+    logger.info('Processing data URL upload')
     try {
       const m = maybeDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/)
       if (m) {
@@ -310,7 +309,7 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
           .upload(fileName, buffer, { cacheControl: '3600', upsert: false })
 
         if (uploadError) {
-          console.error('❌ Upload error:', uploadError)
+          logger.error({ error: uploadError }, 'Upload error')
           throw uploadError
         }
 
@@ -324,11 +323,10 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
 
         ; (updateData as any).image_url = publicUrl
       } else {
-        console.error('❌ Failed to parse data URL')
+        logger.error('Failed to parse data URL')
         throw new Error('Invalid data URL format')
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
@@ -351,7 +349,7 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
         .upload(fileName, fileBody, { cacheControl: '3600', upsert: false })
 
       if (uploadError) {
-        console.error('❌ File upload error:', uploadError)
+        logger.error({ error: uploadError }, 'File upload error')
         throw uploadError
       }
 
@@ -361,20 +359,19 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
       const publicUrlResult: any = primary.storage.from('images').getPublicUrl(fileName)
       const publicUrl = (publicUrlResult && publicUrlResult.data && (publicUrlResult.data.publicUrl || publicUrlResult.data.public_url)) || publicUrlResult?.publicURL || publicUrlResult?.publicUrl
 
-      console.log('🌐 Generated public URL for file:', publicUrl)
+      logger.info({ publicUrl, fileName }, 'Generated public URL for file')
 
       if (!publicUrl) {
         throw new Error('Failed to generate public URL for uploaded file')
       }
 
       ; (updateData as any).image_url = publicUrl
-      console.log('✅ Updated image_url in updateData (file):', publicUrl)
+      logger.info({ publicUrl }, 'Updated image_url in updateData')
 
       // Eliminar campo image_file para que no se intente guardar en la tabla
       delete (updateData as any).image_file
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('❌ Failed to upload file to storage', err)
+      logger.error({ err }, 'Failed to upload file to storage')
       throw new Error(`Failed to upload image: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
@@ -382,15 +379,15 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
   // Clean up updateData before database update
   delete (updateData as any).image_file
 
-  console.log('💾 Final updateData before database update:', JSON.stringify(updateData, null, 2))
+  logger.info({ updateData: JSON.stringify(updateData, null, 2) }, 'Final updateData before database update')
 
   async function runUpdate(dbClient: any) {
-    console.log('🔄 Running database update for product:', id)
+    logger.info({ productId: id }, 'Running database update for product')
     const updatePayload = {
       ...updateData,
       updated_at: new Date().toISOString()
     }
-    console.log('📝 Update payload:', JSON.stringify(updatePayload, null, 2))
+    logger.info({ updatePayload: JSON.stringify(updatePayload, null, 2) }, 'Update payload')
 
     return dbClient
       .from('products')
@@ -429,8 +426,7 @@ export async function updateProduct(id: string, updateData: Partial<CreateProduc
       details = String(err)
     }
 
-    // eslint-disable-next-line no-console
-    console.error('Failed to update product', { id, details, SUPABASE_URL })
+    logger.error({ productId: id, details, SUPABASE_URL }, 'Failed to update product')
     throw new Error(`Failed to update product: ${details}`)
   }
 }

@@ -7,6 +7,7 @@ import '../mocks/supabase.mock.js'
 import '../mocks/redis.mock.js'
 import { Hono } from 'hono'
 import wompiRoutes from '@/routes/wompi.js'
+import { logger } from '@/utils/logger.js'
 
 const app = new Hono()
 app.route('/wompi', wompiRoutes)
@@ -57,8 +58,8 @@ describe('Wompi Routes Integration', () => {
       })
 
       const json = await res.json()
-      console.log('Response status:', res.status)
-      console.log('Response body:', JSON.stringify(json, null, 2))
+      logger.info(`Response status: ${res.status}`)
+      logger.info(`Response body: ${JSON.stringify(json, null, 2)}`)
 
       expect(res.status).toBe(400)
       expect(json.success).toBe(false)

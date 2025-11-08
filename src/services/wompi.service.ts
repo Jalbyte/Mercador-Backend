@@ -9,6 +9,7 @@
 
 import { WOMPI_API_URL, WOMPI_PRIVATE_KEY, WOMPI_EVENTS_SECRET, WOMPI_REDIRECT_URL, API_URL, FRONTEND_URL, ENABLE_PDF_ATTACH } from '../config/env.js'
 import crypto from 'crypto'
+import { logger } from '../utils/logger.js'
 
 /**
  * Interface para los datos del cliente en una transacción
@@ -111,11 +112,11 @@ export class WompiService {
     this.redirectUrl = WOMPI_REDIRECT_URL || `${API_URL}/wompi/callback`
 
     if (!this.privateKey) {
-      console.warn('⚠️ WOMPI_PRIVATE_KEY no está configurada')
+      logger.warn('⚠️ WOMPI_PRIVATE_KEY no está configurada')
     }
 
     if (!this.eventsSecret) {
-      console.warn('⚠️ WOMPI_EVENTS_SECRET (Integrity Secret) no está configurada - requerida para generar firma de integridad del widget')
+      logger.warn('⚠️ WOMPI_EVENTS_SECRET (Integrity Secret) no está configurada - requerida para generar firma de integridad del widget')
     }
   }
 
@@ -147,13 +148,7 @@ export class WompiService {
       .update(concatenated)
       .digest('hex')
 
-    console.log('🔐 Firma de integridad (Widget) generada para:', {
-      reference,
-      amountInCents,
-      currency,
-      type: 'WIDGET_EMBED',
-      signature,
-    })
+    logger.info({ reference, amountInCents, currency, type: 'WIDGET_EMBED', signature }, '🔐 Firma de integridad (Widget) generada')
 
     return signature
   }
@@ -186,13 +181,7 @@ export class WompiService {
       .update(concatenated)
       .digest('hex')
 
-    console.log('🔐 Firma de integridad (API) generada para:', {
-      reference,
-      amountInCents,
-      currency,
-      type: 'API_TRANSACTIONS',
-      signature,
-    })
+    logger.info({ reference, amountInCents, currency, type: 'API_TRANSACTIONS', signature }, '🔐 Firma de integridad (API) generada')
 
     return signature
   }
@@ -222,7 +211,7 @@ export class WompiService {
       const result: WompiTransactionResponse = await response.json()
       return result
     } catch (error) {
-      console.error('Error fetching Wompi transaction status (public):', error)
+      logger.error({ error }, 'Error fetching Wompi transaction status (public)')
       throw error
     }
   }
@@ -252,7 +241,7 @@ export class WompiService {
       const result: WompiTransactionResponse = await response.json()
       return result
     } catch (error) {
-      console.error('Error fetching Wompi transaction status (private):', error)
+      logger.error({ error }, 'Error fetching Wompi transaction status (private)')
       throw error
     }
   }
@@ -265,12 +254,12 @@ export class WompiService {
    */
   validateWebhookSignature(event: WompiWebhookEvent): boolean {
     if (!this.eventsSecret) {
-      console.warn('⚠️ WOMPI_EVENTS_SECRET no está configurado, no se puede validar firma')
+      logger.warn('⚠️ WOMPI_EVENTS_SECRET no está configurado, no se puede validar firma')
       return false
     }
 
     if (!event.signature || !event.signature.checksum || !event.signature.properties) {
-      console.warn('⚠️ El evento no contiene firma')
+      logger.warn('⚠️ El evento no contiene firma')
       return false
     }
 
@@ -305,23 +294,14 @@ export class WompiService {
       const isValid = calculatedChecksum === event.signature.checksum
 
       if (!isValid) {
-        console.warn('⚠️ Firma de webhook inválida')
-        console.debug('🔍 Detalles de validación:', {
-          properties: event.signature.properties,
-          extractedValues,
-          concatenatedValues,
-          secretLength: this.eventsSecret.length,
-          dataToHash: `${concatenatedValues}[SECRET:${this.eventsSecret.substring(0, 10)}...]`,
-          expected: event.signature.checksum,
-          calculated: calculatedChecksum,
-        })
+        logger.warn({ properties: event.signature.properties, extractedValues, concatenatedValues, secretLength: this.eventsSecret.length, expected: event.signature.checksum, calculated: calculatedChecksum }, '⚠️ Firma de webhook inválida')
       } else {
-        console.log('✅ Firma de webhook validada correctamente')
+        logger.info('✅ Firma de webhook validada correctamente')
       }
 
       return isValid
     } catch (error) {
-      console.error('Error validating Wompi webhook signature:', error)
+      logger.error({ error }, 'Error validating Wompi webhook signature')
       return false
     }
   }
@@ -336,16 +316,11 @@ export class WompiService {
   async processWebhookEvent(event: WompiWebhookEvent): Promise<{ success: boolean; message: string }> {
     // Check if transaction data exists
     if (!event.data || !event.data.transaction) {
-      console.error('❌ Evento sin datos de transacción')
+      logger.error('❌ Evento sin datos de transacción')
       return { success: false, message: 'Faltan datos de transacción' }
     }
 
-    console.log('📬 Webhook de Wompi recibido:', {
-      event: event.event,
-      transactionId: event.data.transaction.id,
-      status: event.data.transaction.status,
-      reference: event.data.transaction.reference,
-    })
+    logger.info({ event: event.event, transactionId: event.data.transaction.id, status: event.data.transaction.status, reference: event.data.transaction.reference }, '📬 Webhook de Wompi recibido')
 
     // Validar firma primero
 //    const isValidSignature = this.validateWebhookSignature(event)
@@ -358,12 +333,12 @@ export class WompiService {
     // Extraer el orderId de la referencia (formato: ORDER-{orderId})
     const reference = transaction.reference
     if (!reference || !reference.startsWith('ORDER-')) {
-      console.error('❌ Referencia inválida:', reference)
+      logger.error({ reference }, '❌ Referencia inválida')
       return { success: false, message: 'Invalid reference format' }
     }
 
     const orderId = reference.replace('ORDER-', '')
-    console.log('🔗 Conectando webhook con orden:', orderId)
+    logger.info({ orderId }, '🔗 Conectando webhook con orden')
 
     try {
       // Importar dinámicamente para evitar dependencias circulares
@@ -374,7 +349,7 @@ export class WompiService {
       // Aquí implementa tu lógica de negocio según el estado de la transacción
       switch (transaction.status) {
         case 'APPROVED':
-          console.log('✅ Pago aprobado para orden:', orderId)
+          logger.info({ orderId }, '✅ Pago aprobado para orden')
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
           // Intentar asignar claves y enviar email con factura y claves
           try {
@@ -382,7 +357,7 @@ export class WompiService {
             const order = userId ? await getOrderById(userId, Number(orderId)) : null
             
             if (!order) {
-              console.warn('⚠️ No se encontró la orden:', orderId)
+              logger.warn({ orderId }, '⚠️ No se encontró la orden')
               break
             }
 
@@ -404,7 +379,7 @@ export class WompiService {
                     totalKeysCount += assigned.length
                   }
                 } catch (e) {
-                  console.warn('Error assigning keys for product', item.product_id, e)
+                  logger.warn({ productId: item.product_id, error: e }, 'Error assigning keys for product')
                 }
               }
             }
@@ -480,9 +455,9 @@ export class WompiService {
                 invoiceUrl.searchParams.set('status', 'paid')
 
                 // Nota: el PDF se genera en mail.service.ts usando Puppeteer
-                console.log('📄 Factura PDF se generará desde:', invoiceUrl.toString().substring(0, 100) + '...')
+                logger.info({ invoiceUrl: invoiceUrl.toString().substring(0, 100) + '...' }, '📄 Factura PDF se generará desde')
               } catch (e) {
-                console.warn('⚠️ Error preparando datos de factura:', e)
+                logger.warn({ error: e }, '⚠️ Error preparando datos de factura')
               }
             }
 
@@ -504,18 +479,15 @@ export class WompiService {
               attachments
             })
             
-            console.log(`✅ Email enviado exitosamente`)
-            console.log(`   📧 Destinatario: ${transaction.customer_email}`)
-            console.log(`   🔑 Claves asignadas: ${totalKeysCount}`)
-            console.log(`   📎 Adjuntos: ${attachments.length} archivo(s) + ${ENABLE_PDF_ATTACH ? '1 PDF' : '0 PDF'}`)
+            logger.info({ to: transaction.customer_email, keysCount: totalKeysCount, attachmentsCount: attachments.length, pdfAttached: ENABLE_PDF_ATTACH }, '✅ Email enviado exitosamente')
           } catch (err) {
-            console.warn('No se pudo asignar claves o enviar email de confirmación:', err)
+            logger.warn({ error: err }, 'No se pudo asignar claves o enviar email de confirmación')
           }
           // TODO: Liberar productos del inventario
           break
 
         case 'DECLINED':
-          console.log('❌ Pago rechazado para orden:', orderId)
+          logger.info({ orderId }, '❌ Pago rechazado para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // Notificar al cliente del rechazo
           try {
@@ -528,24 +500,24 @@ export class WompiService {
               attachPdf: false
             })
           } catch (err) {
-            console.warn('No se pudo enviar email de rechazo:', err)
+            logger.warn({ error: err }, 'No se pudo enviar email de rechazo')
           }
           // TODO: Restaurar items al carrito si es necesario
           break
 
         case 'PENDING':
-          console.log('⏳ Pago pendiente para orden:', orderId)
+          logger.info({ orderId }, '⏳ Pago pendiente para orden')
           await updateOrderStatusWithPayment(orderId, 'pending', transaction.id)
           break
 
         case 'VOIDED':
-          console.log('🚫 Pago anulado para orden:', orderId)
+          logger.info({ orderId }, '🚫 Pago anulado para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // TODO: Revertir la orden
           break
 
         case 'ERROR':
-          console.log('⚠️ Error en el pago para orden:', orderId)
+          logger.info({ orderId }, '⚠️ Error en el pago para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // Registrar el error y notificar
           try {
@@ -558,17 +530,17 @@ export class WompiService {
               attachPdf: false
             })
           } catch (err) {
-            console.warn('No se pudo enviar email de error de pago:', err)
+            logger.warn({ error: err }, 'No se pudo enviar email de error de pago')
           }
           break
 
         default:
-          console.log('❓ Estado desconocido para orden:', orderId, transaction.status)
+          logger.info({ orderId, status: transaction.status }, '❓ Estado desconocido para orden')
       }
 
       return { success: true, message: `Order ${reference} updated to ${transaction.status}` }
     } catch (error) {
-      console.error('❌ Error procesando webhook para orden:', orderId, error)
+      logger.error({ orderId, error }, '❌ Error procesando webhook para orden')
       return { success: false, message: `Failed to update order ${orderId}: ${error instanceof Error ? error.message : 'Unknown error'}` }
     }
   }
