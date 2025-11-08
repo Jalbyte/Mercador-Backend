@@ -141,7 +141,7 @@ export class WompiService {
 
     // Fórmula para Widget Embed: reference + amount + currency + secret
     const concatenated = `${reference}${amountInCents}${currency}${this.eventsSecret}`
-    
+
     // Generar hash SHA256
     const signature = crypto
       .createHash('sha256')
@@ -174,7 +174,7 @@ export class WompiService {
 
     // Fórmula para API: amount + currency + reference + secret (orden diferente)
     const concatenated = `${amountInCents}${currency}${reference}${this.eventsSecret}`
-    
+
     // Generar hash SHA256
     const signature = crypto
       .createHash('sha256')
@@ -323,10 +323,10 @@ export class WompiService {
     logger.info({ event: event.event, transactionId: event.data.transaction.id, status: event.data.transaction.status, reference: event.data.transaction.reference }, '📬 Webhook de Wompi recibido')
 
     // Validar firma primero
-//    const isValidSignature = this.validateWebhookSignature(event)
-//    if (!isValidSignature && this.eventsSecret) {
-//      return { success: false, message: 'Invalid signature' }
-//    }
+    //    const isValidSignature = this.validateWebhookSignature(event)
+    //    if (!isValidSignature && this.eventsSecret) {
+    //      return { success: false, message: 'Invalid signature' }
+    //    }
 
     const { transaction } = event.data
 
@@ -342,9 +342,9 @@ export class WompiService {
 
     try {
       // Importar dinámicamente para evitar dependencias circulares
-  const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
-  const { sendOrderEmail } = await import('./mail.service.js')
-  const { assignKeysToUser } = await import('./product_key.service.js')
+      const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
+      const { sendOrderEmail } = await import('./mail.service.js')
+      const { assignKeysToUser } = await import('./product_key.service.js')
 
       // Aquí implementa tu lógica de negocio según el estado de la transacción
       switch (transaction.status) {
@@ -355,21 +355,22 @@ export class WompiService {
           try {
             const userId = await getOrderUserId(orderId)
             const order = userId ? await getOrderById(userId, Number(orderId)) : null
-            
+
             if (!order) {
               logger.warn({ orderId }, '⚠️ No se encontró la orden')
               break
             }
+            logger.info({ order }, 'Orden obtenida')
 
             const assignedKeysDetails: Array<{ productId: string, productName: string, keys: string[] }> = []
             let totalKeysCount = 0
-            
+
             // Asignar claves para cada producto
             if (Array.isArray(order.items)) {
               for (const item of order.items) {
                 try {
                   const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
-                  
+
                   if (assigned.length > 0) {
                     assignedKeysDetails.push({
                       productId: String(item.product_id),
@@ -386,7 +387,7 @@ export class WompiService {
 
             // Preparar archivos adjuntos
             const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
-            
+
             // 1. Generar archivo TXT con las claves (si hay claves)
             if (assignedKeysDetails.length > 0) {
               let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
@@ -395,20 +396,20 @@ export class WompiService {
 ║  Orden: ${reference.padEnd(52)} ║
 ║  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} ║
 ╚════════════════════════════════════════════════════════════════╝\n\n`
-              
+
               assignedKeysDetails.forEach((product) => {
                 keysFileContent += `\n${'='.repeat(64)}\n`
                 keysFileContent += `PRODUCTO: ${product.productName}\n`
                 keysFileContent += `ID: ${product.productId}\n`
                 keysFileContent += `CANTIDAD: ${product.keys.length} clave(s)\n`
                 keysFileContent += `${'='.repeat(64)}\n\n`
-                
+
                 product.keys.forEach((key, keyIdx) => {
                   keysFileContent += `  ${keyIdx + 1}. ${key}\n`
                 })
                 keysFileContent += '\n'
               })
-              
+
               keysFileContent += `\n${'='.repeat(64)}\n`
               keysFileContent += `IMPORTANTE:\n`
               keysFileContent += `- Guarda este archivo en un lugar seguro\n`
@@ -416,7 +417,7 @@ export class WompiService {
               keysFileContent += `- Cada clave es única y solo puede usarse una vez\n`
               keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
               keysFileContent += `${'='.repeat(64)}\n`
-              
+
               attachments.push({
                 data: Buffer.from(keysFileContent, 'utf-8'),
                 filename: `claves-orden-${orderId}.txt`,
@@ -467,8 +468,8 @@ export class WompiService {
               to: transaction.customer_email,
               subject: `✅ Orden ${reference} - Pago Confirmado`,
               templatePath: emailTemplateUrl,
-              templateQuery: { 
-                reference, 
+              templateQuery: {
+                reference,
                 status: 'confirmed',
                 keysCount: totalKeysCount.toString(),
                 orderId,
@@ -478,7 +479,7 @@ export class WompiService {
               pdfFilename: `factura-${orderId}.pdf`,
               attachments
             })
-            
+
             logger.info({ to: transaction.customer_email, keysCount: totalKeysCount, attachmentsCount: attachments.length, pdfAttached: ENABLE_PDF_ATTACH }, '✅ Email enviado exitosamente')
           } catch (err) {
             logger.warn({ error: err }, 'No se pudo asignar claves o enviar email de confirmación')
