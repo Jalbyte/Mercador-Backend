@@ -15,6 +15,16 @@ const MOCK_ENV = {
   WOMPI_EVENTS_SECRET: 'test_integrity_da6xTSFwIjmkBcbaEajluAEHar7jvewT',
 }
 
+// Mock order service para evitar errores en updateOrderStatusWithPayment
+vi.mock('../../services/order.service.js', () => ({
+  updateOrderStatusWithPayment: vi.fn(async (orderId, status) => ({
+    id: orderId,
+    status,
+    updated_at: new Date().toISOString()
+  })),
+  getOrderUserId: vi.fn(async (orderId) => 'test-user-id')
+}))
+
 describe('WompiService', () => {
   let wompiService: WompiService
 
@@ -25,6 +35,7 @@ describe('WompiService', () => {
     process.env.WOMPI_EVENTS_SECRET = MOCK_ENV.WOMPI_EVENTS_SECRET
 
     wompiService = new WompiService()
+    vi.clearAllMocks()
   })
 
   // ====================== generateIntegritySignature ======================

@@ -33,15 +33,21 @@ export const mockSupabaseProfile = {
 }
 
 export const createMockSupabaseClient = () => {
-  const mockFrom = vi.fn(() => ({
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    single: vi.fn().mockResolvedValue({ data: mockSupabaseProfile, error: null }),
-    maybeSingle: vi.fn().mockResolvedValue({ data: mockSupabaseProfile, error: null }),
-  }))
+  const createChainableMock = (): any => {
+    const chain: any = {
+      select: vi.fn(function() { return chain }),
+      insert: vi.fn(function() { return chain }),
+      update: vi.fn(function() { return chain }),
+      delete: vi.fn(function() { return chain }),
+      eq: vi.fn(function() { return chain }),
+      // Por defecto retorna null para que no haya conflictos con emails existentes
+      single: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: mockSupabaseProfile, error: null }),
+    }
+    return chain
+  }
+
+  const mockFrom = vi.fn(() => createChainableMock())
 
   return {
     auth: {
@@ -117,6 +123,53 @@ export const createMockSupabaseClient = () => {
 }
 
 export const mockSupabaseClient = createMockSupabaseClient()
+
+/**
+ * Resetea los mocks de Supabase a sus valores por defecto
+ */
+export const resetSupabaseMocks = () => {
+  vi.clearAllMocks()
+  
+  // Resetear auth.signUp
+  vi.mocked(mockSupabaseClient.auth.signUp).mockResolvedValue({
+    data: { user: mockSupabaseUser, session: mockSupabaseSession },
+    error: null,
+  })
+  
+  // Resetear auth.signInWithPassword
+  vi.mocked(mockSupabaseClient.auth.signInWithPassword).mockResolvedValue({
+    data: { user: mockSupabaseUser, session: mockSupabaseSession },
+    error: null,
+  })
+  
+  // Resetear from() con chainable mock
+  const createChainableMock = (): any => {
+    const chain: any = {
+      select: vi.fn(function() { return chain }),
+      insert: vi.fn(function() { return chain }),
+      update: vi.fn(function() { return chain }),
+      delete: vi.fn(function() { return chain }),
+      eq: vi.fn(function() { return chain }),
+      single: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: mockSupabaseProfile, error: null }),
+    }
+    return chain
+  }
+  
+  vi.mocked(mockSupabaseClient.from).mockReturnValue(createChainableMock())
+  
+  // Resetear auth.getUser
+  vi.mocked(mockSupabaseClient.auth.getUser).mockResolvedValue({
+    data: { user: mockSupabaseUser },
+    error: null,
+  })
+  
+  // Resetear auth.refreshSession
+  vi.mocked(mockSupabaseClient.auth.refreshSession).mockResolvedValue({
+    data: { session: mockSupabaseSession, user: mockSupabaseUser },
+    error: null,
+  })
+}
 
 // Mock the Supabase module
 vi.mock('@supabase/supabase-js', () => ({
