@@ -1021,15 +1021,7 @@ export const completeMFALogin = async (newAccessToken: string, refreshToken: str
     return { success: true }
   }
 
-  // Código original para producción
-  const pendingExists = await redisService.exists(`mfa_pending:${originalTempToken}`)
-  if (!pendingExists) {
-    throw new Error('No pending MFA session found or session expired')
-  }
-
-  await redisService.del(`mfa_pending:${originalTempToken}`)
   await redisService.set(`session:${newAccessToken}`, userId, expiresIn)
-
   const refreshTtlSeconds = (parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10) || 7) * 24 * 60 * 60
   await redisService.set(`refresh:${refreshToken}`, userId, refreshTtlSeconds)
 
