@@ -193,9 +193,24 @@ export class ReturnService {
         `)
                 .eq('return_id', returnId);
 
+            // Obtener información de puntos usados en la orden
+            let orderPoints = null;
+            if (returnData.order_id) {
+                const { data: pointsData } = await client
+                    .from('order_points')
+                    .select('points_used, points_earned, discount_amount')
+                    .eq('order_id', returnData.order_id)
+                    .single();
+                
+                if (pointsData) {
+                    orderPoints = pointsData;
+                }
+            }
+
             return {
                 ...returnData,
                 items: items || [],
+                order_points: orderPoints, // Agregar información de puntos
             } as ReturnWithDetails;
         } catch (error) {
             logger.error({ error }, 'Error in getReturnById');

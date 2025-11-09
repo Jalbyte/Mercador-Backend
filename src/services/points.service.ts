@@ -369,9 +369,24 @@ export async function getOrderPoints(orderId: bigint): Promise<OrderPoints | nul
 /**
  * Calcular reembolso proporcional de puntos y dinero
  * 
- * @param orderTotal - Total original de la orden
+ * Lógica correcta:
+ * 1. Total orden = precio antes de aplicar descuento de puntos
+ * 2. Descuento por puntos = pointsUsed × 10 COP
+ * 3. Realmente pagado = Total orden - Descuento por puntos
+ * 4. Porcentaje de devolución = refundAmount / realmentePagado
+ * 5. Puntos a reembolsar = Math.floor((refundAmount / realmentePagado) × pointsUsed)
+ * 
+ * Ejemplo:
+ * - Orden: $766,000
+ * - Puntos usados: 717 puntos = $7,170 descuento
+ * - Realmente pagado: $758,830
+ * - Devolución: $315,000
+ * - Porcentaje: 41.50%
+ * - Puntos a reembolsar: Math.floor(31,500 × 41.50%) = 298 puntos
+ * 
+ * @param orderTotal - Total original de la orden (antes del descuento de puntos)
  * @param pointsUsed - Puntos que se usaron en la orden
- * @param refundAmount - Monto a reembolsar en dinero
+ * @param refundAmount - Monto total a reembolsar
  * @returns Objeto con dinero y puntos a reembolsar
  */
 export function calculateProportionalRefund(
@@ -387,16 +402,22 @@ export function calculateProportionalRefund(
     }
   }
 
-  // Calcular el valor en pesos de los puntos usados
-  const pointsValueInPesos = pointsToPesos(pointsUsed)
+  // Calcular el valor en pesos de los puntos usados (descuento aplicado)
+  const pointsDiscount = pointsUsed * POINTS_CONSTANTS.PESOS_PER_POINT;
   
-  // Calcular el porcentaje que representan los puntos del total
-  const pointsPercentage = pointsValueInPesos / orderTotal
-  const moneyPercentage = 1 - pointsPercentage
-
-  // Calcular reembolso proporcional
-  const pointsRefund = Math.floor(refundAmount * pointsPercentage / POINTS_CONSTANTS.PESOS_PER_POINT)
-  const moneyRefund = Math.floor(refundAmount * moneyPercentage)
+  // Calcular lo que realmente se pagó (después del descuento de puntos)
+  const actualPaid = orderTotal - pointsDiscount;
+  
+  // Calcular el porcentaje de devolución sobre lo realmente pagado
+  const refundPercentage = refundAmount / actualPaid;
+  
+  // Calcular puntos proporcionales a reembolsar
+  // Convertimos refundAmount a puntos y aplicamos el porcentaje
+  const refundInPoints = Math.floor(refundAmount / POINTS_CONSTANTS.PESOS_PER_POINT);
+  const pointsRefund = Math.floor(refundInPoints * refundPercentage);
+  
+  // El reembolso en dinero es el total (ya que los puntos se reembolsan por separado)
+  const moneyRefund = refundAmount;
 
   return {
     moneyRefund,
