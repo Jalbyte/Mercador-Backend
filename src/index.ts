@@ -10,10 +10,10 @@
 import { serve } from '@hono/node-server'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { pino } from 'pino'
-import { API_URL, LOG_LEVEL, PORT } from './config/env.js'
+import { API_URL, LOG_LEVEL, NODE_ENV, PORT } from './config/env.js'
 import { authMiddleware, optionalAuthMiddleware } from './middlewares/index.js'
 import { cookieToAuthHeader } from './middlewares/cookieToAuthHeader.js'
-import { healthRoutes, authRoutes, cartRoutes, orderRoutes, productRoutes, profileRoutes, wompiRoutes, adminUserRoutes, adminStatsRoutes, returnRoutes, logRoutes} from './routes/index.js'
+import { healthRoutes, authRoutes, cartRoutes, orderRoutes, productRoutes, profileRoutes, wompiRoutes, adminUserRoutes, adminStatsRoutes, adminPointsRoutes, returnRoutes, logRoutes, pointsRoutes} from './routes/index.js'
 
 // Importar métricas centralizadas
 import {
@@ -185,9 +185,11 @@ app.route('/orders', orderRoutes)
 // PayU deshabilitado
 app.route('/wompi', wompiRoutes)
 app.route('/admin/users', adminUserRoutes)
+app.route('/admin/points', adminPointsRoutes)
 app.route('/admin', adminStatsRoutes)
 app.route('/returns', returnRoutes)
 app.route('/logs', logRoutes)
+app.route('/points', pointsRoutes)
 
 // -------------------- Redis health --------------------
 /**
@@ -236,7 +238,7 @@ app.get('/metrics', async (c) => {
  */
 app.onError((err, c) => {
   logger.error({ err }, 'Unhandled error')
-  if (process.env.NODE_ENV !== 'production') {
+  if (NODE_ENV !== 'production') {
     return c.json({ success: false, error: err?.message, stack: err?.stack }, 500)
   }
   return c.json({ success: false, error: 'Internal server error' }, 500)

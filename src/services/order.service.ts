@@ -44,6 +44,7 @@
 import { supabase } from '../config/supabase.js'
 import { supabaseAdmin } from '../config/supabase.js'
 import { createSupabaseClient } from './user.service.js'
+import { logger } from '../utils/logger.js'
 
 // Helper: returns current timestamp in local time with timezone offset
 // Example output: 2025-10-27T12:34:56-05:00
@@ -60,20 +61,26 @@ function nowWithLocalOffset(): string {
 }
 
 export interface Order {
-  id: string
+  id: number
   user_id: string
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
   total_amount: number
-  shipping_address: any
+  shipping_address: {
+    addressLine1: string
+    city: string
+    region: string
+    country: string
+    phoneNumber: string
+  }
   payment_method: string
   created_at: string
   updated_at: string
-  items?: OrderItem[]
+  order_items?: OrderItem[]
 }
 
 export interface OrderItem {
-  id: string
-  order_id: string
+  id: number
+  order_id: number
   product_id: number
   quantity: number
   price: number
@@ -332,7 +339,7 @@ export async function updateOrderStatusWithPayment(
 ) {
   // Log del payment_id para trazabilidad
   if (paymentId) {
-    console.log(`💳 Order ${orderId} - Payment ID: ${paymentId}`);
+    logger.info({ orderId, paymentId }, 'Order payment ID updated')
   }
 
   // Usar cliente autenticado si se proporciona token, sino usar admin
@@ -456,7 +463,7 @@ export async function calculateOrderAccuracy(): Promise<{
       .select('*', { count: 'exact', head: true })
 
     if (ordersError) {
-      console.error('Error al obtener total de órdenes:', ordersError)
+      logger.error({ error: ordersError }, 'Error al obtener total de órdenes')
       throw ordersError
     }
 
@@ -476,9 +483,9 @@ export async function calculateOrderAccuracy(): Promise<{
         .eq('status', 'cancelled')
       
       errorCount = cancelledCount || 0
-      console.log('ℹ Tabla order_errors no encontrada, usando órdenes canceladas como proxy')
+      logger.info('Tabla order_errors no encontrada, usando órdenes canceladas como proxy')
     } else if (errorsError) {
-      console.error('Error al obtener errores de órdenes:', errorsError)
+      logger.error({ error: errorsError }, 'Error al obtener errores de órdenes')
       errorCount = 0
     } else {
       errorCount = errorOrdersCount || 0
@@ -499,21 +506,19 @@ export async function calculateOrderAccuracy(): Promise<{
       meetsTarget: accuracy >= 95
     }
 
-    // Log con colores y formato
-    console.log('\n' + '='.repeat(60))
-    console.log('MÉTRICA: EXACTITUD DEL PEDIDO (Order Accuracy)')
-    console.log('='.repeat(60))
-    console.log(`Total de pedidos:        ${result.totalOrders}`)
-    console.log(`Pedidos correctos:       ${result.successfulOrders}`)
-    console.log(`Pedidos con error:       ${result.errorOrders}`)
-    console.log('─'.repeat(60))
-    console.log(`Exactitud:               ${result.accuracy}%`)
-    console.log(`Target (>95%):           ${result.meetsTarget ? 'CUMPLE' : 'NO CUMPLE'}`)
-    console.log('='.repeat(60) + '\n')
+    // Log métrica de exactitud del pedido
+    logger.info({
+      accuracy: result.accuracy,
+      totalOrders: result.totalOrders,
+      successfulOrders: result.successfulOrders,
+      errorOrders: result.errorOrders,
+      meetsTarget: result.meetsTarget,
+      target: 95
+    }, 'MÉTRICA: EXACTITUD DEL PEDIDO (Order Accuracy)')
 
     return result
   } catch (error) {
-    console.error('Error al calcular exactitud del pedido:', error)
+    logger.error({ error }, 'Error al calcular exactitud del pedido')
     throw error
   }
 }
@@ -540,13 +545,13 @@ export async function logOrderError(
     if (error) {
       // Si la tabla no existe, solo log el error (no fallar)
       if (error.code === '42P01') {
-        console.warn('Tabla order_errors no existe. Considera crearla para tracking de errores.')
+        logger.warn('Tabla order_errors no existe. Considera crearla para tracking de errores.')
       } else {
-        console.error('Error al registrar error de orden:', error)
+        logger.error({ error }, 'Error al registrar error de orden')
       }
     }
   } catch (err) {
-    console.error('Error al guardar error de orden:', err)
+    logger.error({ err }, 'Error al guardar error de orden')
   }
 }
 
@@ -604,43 +609,90 @@ export async function resendOrderKeys(orderId: number, accessToken: string): Pro
 
   // Importar servicio de email
   const { sendOrderEmail } = await import('./mail.service.js')
+  const { ENABLE_PDF_ATTACH, FRONTEND_URL } = await import('../config/env.js')
 
   // Preparar datos de las claves agrupadas por producto
   const productKeys: Array<{
     productId: number
     productName: string
-    quantity: number
-    keys: string[]
+    keys: Array<{ id: number, license_key: string }>
   }> = []
+
+  let totalKeysCount = 0
 
   for (const item of order.order_items || []) {
     const product = Array.isArray(item.products) ? item.products[0] : item.products
     const keys = Array.isArray(item.product_keys) 
-      ? item.product_keys.map((k: any) => k.license_key) 
+      ? item.product_keys.map((k: any) => ({ id: k.id, license_key: k.license_key }))
       : []
     
-    productKeys.push({
-      productId: product?.id || 0,
-      productName: product?.name || 'Unknown Product',
-      quantity: keys.length,
-      keys
+    if (keys.length > 0) {
+      productKeys.push({
+        productId: product?.id || 0,
+        productName: product?.name || 'Unknown Product',
+        keys
+      })
+      totalKeysCount += keys.length
+    }
+  }
+
+  // Preparar adjuntos
+  const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
+
+  // 1. Generar archivo TXT con las claves (con IDs)
+  if (productKeys.length > 0) {
+    const reference = `ORDER-${order.id}`
+    let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
+                  CLAVES DE LICENCIA - MERCADOR                 
+                                                                
+  Orden: ${reference.padEnd(52)} 
+  Fecha: ${new Date(order.created_at).toLocaleDateString('es-CO').padEnd(52)} 
+╚════════════════════════════════════════════════════════════════╝\n\n`
+
+    productKeys.forEach((product) => {
+      keysFileContent += `\n${'='.repeat(64)}\n`
+      keysFileContent += `PRODUCTO: ${product.productName}\n`
+      keysFileContent += `ID: ${product.productId}\n`
+      keysFileContent += `CANTIDAD: ${product.keys.length} clave(s)\n`
+      keysFileContent += `${'='.repeat(64)}\n\n`
+
+      product.keys.forEach((key, keyIdx) => {
+        keysFileContent += `  ${keyIdx + 1}. [ID: ${key.id}] ${key.license_key}\n`
+      })
+      keysFileContent += '\n'
+    })
+
+    keysFileContent += `\n${'='.repeat(64)}\n`
+    keysFileContent += `IMPORTANTE:\n`
+    keysFileContent += `- Guarda este archivo en un lugar seguro\n`
+    keysFileContent += `- No compartas tus claves con nadie\n`
+    keysFileContent += `- Cada clave es única y solo puede usarse una vez\n`
+    keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
+    keysFileContent += `${'='.repeat(64)}\n`
+
+    attachments.push({
+      data: Buffer.from(keysFileContent, 'utf-8'),
+      filename: `claves-orden-${order.id}.txt`,
+      contentType: 'text/plain; charset=utf-8'
     })
   }
 
-  // Construir template query para email con claves
+  // Construir template query para email
   const templateQuery: Record<string, string> = {
-    orderId: `ORDER-${order.id}`,
-    orderDate: new Date(order.created_at).toLocaleDateString('es-CO'),
-    customerName: profile.full_name || profile.email,
-    products: JSON.stringify(productKeys)
+    reference: `ORDER-${order.id}`,
+    status: 'confirmed',
+    keysCount: totalKeysCount.toString(),
+    orderId: order.id.toString(),
+    customerName: profile.full_name || profile.email
   }
 
-  // Enviar email con las claves
+  // Enviar email con las claves en archivo TXT adjunto
   await sendOrderEmail({
     to: profile.email,
-    subject: `Claves de Licencia - Orden ${order.id}`,
-    templatePath: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/email/license-keys`,
+    subject: `🔑 Claves de Licencia - Orden ORDER-${order.id}`,
+    templatePath: `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`,
     templateQuery,
-    attachPdf: false
+    attachPdf: false, // No enviar PDF en reenvío, solo las claves
+    attachments
   })
 }

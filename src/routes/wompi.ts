@@ -11,6 +11,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { WompiService } from '../services/wompi.service.js'
 import type { Context } from 'hono'
 import { WOMPI_PUBLIC_KEY } from '../config/env.js'
+import { logger } from '../utils/logger.js'
 
 const wompiRoutes = new OpenAPIHono()
 const wompiService = new WompiService()
@@ -159,7 +160,7 @@ const generateSignatureRoute = createRoute({
 wompiRoutes.openapi(generateSignatureRoute, async (c: Context) => {
   try {
     const body = await c.req.json()
-    console.log('Request body:', body)
+  logger.debug({ body }, 'Request body')
     const { amount, currency, reference } = body
 
     if (!amount || !currency || !reference) {
@@ -188,7 +189,7 @@ wompiRoutes.openapi(generateSignatureRoute, async (c: Context) => {
       currency,
     }, 200)
   } catch (error: any) {
-    console.error('Error generando firma Wompi:', error)
+  logger.error({ err: error }, 'Error generando firma Wompi')
     
     return c.json(
       {
@@ -282,7 +283,7 @@ wompiRoutes.openapi(getStatusRoute, async (c: Context) => {
       data: result.data,
     }, 200)
   } catch (error: any) {
-    console.error('Error consultando transacción Wompi:', error)
+  logger.error({ err: error }, 'Error consultando transacción Wompi')
     return c.json(
       {
         success: false,
@@ -344,7 +345,7 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
     // Wompi envía la firma en el header X-Event-Checksum
     const receivedSignature = c.req.header('X-Event-Checksum') || c.req.header('x-event-checksum')
     
-    console.log('📬 Webhook de Wompi recibido:', {
+    logger.info({
       event: body.event,
       timestamp: body.timestamp,
       transactionId: body.data?.transaction?.id,
@@ -352,13 +353,13 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
       status: body.data?.transaction?.status,
       hasSignature: !!receivedSignature,
       signature: receivedSignature,
-    })
+    }, '📬 Webhook de Wompi recibido')
 
     // Validar firma del webhook (crítico para seguridad)
     if (false) {
       const isValidSignature = wompiService.validateWebhookSignature(body)
       if (!isValidSignature) {
-        console.error('🚨 Firma de webhook inválida')
+  logger.error('🚨 Firma de webhook inválida')
         return c.json(
           {
             success: false,
@@ -367,9 +368,9 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
           400
         )
       }
-      console.log('✅ Firma de webhook validada correctamente')
+  logger.info('✅ Firma de webhook validada correctamente')
     } else {
-      console.warn('⚠️ Webhook sin firma X-Event-Checksum - considera rechazarlo en producción')
+  logger.warn('⚠️ Webhook sin firma X-Event-Checksum - considera rechazarlo en producción')
     }
 
     // Procesar el evento del webhook
@@ -390,7 +391,7 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
       message: result.message,
     }, 200)
   } catch (error: any) {
-    console.error('Error procesando webhook de Wompi:', error)
+  logger.error({ err: error }, 'Error procesando webhook de Wompi')
     return c.json(
       {
         success: false,

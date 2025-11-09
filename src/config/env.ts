@@ -79,7 +79,6 @@ export const envSchema = z.object({
   WOMPI_REDIRECT_URL: z.string().url().optional(),
   /** Secret para validar firma de webhooks de Wompi */
   WOMPI_EVENTS_SECRET: z.string().min(1).optional(),
-  
   // Email & Reports
   /** API Key de Mailgun para envío de emails */
   MAILGUN_API_KEY: z.string().min(1),
@@ -138,4 +137,5 @@ export const {
   MAILGUN_API_KEY,
   MAILGUN_DOMAIN,
   ENABLE_PDF_ATTACH,
+  REFRESH_TOKEN_TTL_DAYS,
 } = env

@@ -31,6 +31,8 @@ logRoutes.use('*', authMiddleware);
 // Helper: Verificar si el usuario es admin
 function isAdmin(c: any): boolean {
     const role = c.get('userRole');
+    const userId = c.get('userId');
+    logger.info({ userId, role }, 'Checking admin role');
     return role === 'admin';
 }
 
@@ -349,11 +351,6 @@ logRoutes.openapi(
             // Leer el archivo de log (usa la nueva lógica dinámica)
             const logLines = await readLogFile(type as LogType, maxLines);
             const fileInfo = await getLogFileInfo(type as LogType);
-
-            logger.info(
-                { userId: c.get('userId'), logType: type, lines: maxLines },
-                'Logs consultados'
-            );
 
             return c.json({
                 success: true,

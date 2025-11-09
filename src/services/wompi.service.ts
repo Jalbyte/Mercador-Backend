@@ -9,6 +9,7 @@
 
 import { WOMPI_API_URL, WOMPI_PRIVATE_KEY, WOMPI_EVENTS_SECRET, WOMPI_REDIRECT_URL, API_URL, FRONTEND_URL, ENABLE_PDF_ATTACH } from '../config/env.js'
 import crypto from 'crypto'
+import { logger } from '../utils/logger.js'
 
 /**
  * Interface para los datos del cliente en una transacción
@@ -111,11 +112,11 @@ export class WompiService {
     this.redirectUrl = WOMPI_REDIRECT_URL || `${API_URL}/wompi/callback`
 
     if (!this.privateKey) {
-      console.warn('⚠️ WOMPI_PRIVATE_KEY no está configurada')
+      logger.warn('⚠️ WOMPI_PRIVATE_KEY no está configurada')
     }
 
     if (!this.eventsSecret) {
-      console.warn('⚠️ WOMPI_EVENTS_SECRET (Integrity Secret) no está configurada - requerida para generar firma de integridad del widget')
+      logger.warn('⚠️ WOMPI_EVENTS_SECRET (Integrity Secret) no está configurada - requerida para generar firma de integridad del widget')
     }
   }
 
@@ -140,20 +141,14 @@ export class WompiService {
 
     // Fórmula para Widget Embed: reference + amount + currency + secret
     const concatenated = `${reference}${amountInCents}${currency}${this.eventsSecret}`
-    
+
     // Generar hash SHA256
     const signature = crypto
       .createHash('sha256')
       .update(concatenated)
       .digest('hex')
 
-    console.log('🔐 Firma de integridad (Widget) generada para:', {
-      reference,
-      amountInCents,
-      currency,
-      type: 'WIDGET_EMBED',
-      signature,
-    })
+    logger.info({ reference, amountInCents, currency, type: 'WIDGET_EMBED', signature }, '🔐 Firma de integridad (Widget) generada')
 
     return signature
   }
@@ -179,20 +174,14 @@ export class WompiService {
 
     // Fórmula para API: amount + currency + reference + secret (orden diferente)
     const concatenated = `${amountInCents}${currency}${reference}${this.eventsSecret}`
-    
+
     // Generar hash SHA256
     const signature = crypto
       .createHash('sha256')
       .update(concatenated)
       .digest('hex')
 
-    console.log('🔐 Firma de integridad (API) generada para:', {
-      reference,
-      amountInCents,
-      currency,
-      type: 'API_TRANSACTIONS',
-      signature,
-    })
+    logger.info({ reference, amountInCents, currency, type: 'API_TRANSACTIONS', signature }, '🔐 Firma de integridad (API) generada')
 
     return signature
   }
@@ -222,7 +211,7 @@ export class WompiService {
       const result: WompiTransactionResponse = await response.json()
       return result
     } catch (error) {
-      console.error('Error fetching Wompi transaction status (public):', error)
+      logger.error({ error }, 'Error fetching Wompi transaction status (public)')
       throw error
     }
   }
@@ -252,7 +241,7 @@ export class WompiService {
       const result: WompiTransactionResponse = await response.json()
       return result
     } catch (error) {
-      console.error('Error fetching Wompi transaction status (private):', error)
+      logger.error({ error }, 'Error fetching Wompi transaction status (private)')
       throw error
     }
   }
@@ -265,12 +254,12 @@ export class WompiService {
    */
   validateWebhookSignature(event: WompiWebhookEvent): boolean {
     if (!this.eventsSecret) {
-      console.warn('⚠️ WOMPI_EVENTS_SECRET no está configurado, no se puede validar firma')
+      logger.warn('⚠️ WOMPI_EVENTS_SECRET no está configurado, no se puede validar firma')
       return false
     }
 
     if (!event.signature || !event.signature.checksum || !event.signature.properties) {
-      console.warn('⚠️ El evento no contiene firma')
+      logger.warn('⚠️ El evento no contiene firma')
       return false
     }
 
@@ -305,23 +294,14 @@ export class WompiService {
       const isValid = calculatedChecksum === event.signature.checksum
 
       if (!isValid) {
-        console.warn('⚠️ Firma de webhook inválida')
-        console.debug('🔍 Detalles de validación:', {
-          properties: event.signature.properties,
-          extractedValues,
-          concatenatedValues,
-          secretLength: this.eventsSecret.length,
-          dataToHash: `${concatenatedValues}[SECRET:${this.eventsSecret.substring(0, 10)}...]`,
-          expected: event.signature.checksum,
-          calculated: calculatedChecksum,
-        })
+        logger.warn({ properties: event.signature.properties, extractedValues, concatenatedValues, secretLength: this.eventsSecret.length, expected: event.signature.checksum, calculated: calculatedChecksum }, '⚠️ Firma de webhook inválida')
       } else {
-        console.log('✅ Firma de webhook validada correctamente')
+        logger.info('✅ Firma de webhook validada correctamente')
       }
 
       return isValid
     } catch (error) {
-      console.error('Error validating Wompi webhook signature:', error)
+      logger.error({ error }, 'Error validating Wompi webhook signature')
       return false
     }
   }
@@ -336,104 +316,197 @@ export class WompiService {
   async processWebhookEvent(event: WompiWebhookEvent): Promise<{ success: boolean; message: string }> {
     // Check if transaction data exists
     if (!event.data || !event.data.transaction) {
-      console.error('❌ Evento sin datos de transacción')
+      logger.error('❌ Evento sin datos de transacción')
       return { success: false, message: 'Faltan datos de transacción' }
     }
 
-    console.log('📬 Webhook de Wompi recibido:', {
-      event: event.event,
-      transactionId: event.data.transaction.id,
-      status: event.data.transaction.status,
-      reference: event.data.transaction.reference,
-    })
+    logger.info({ event: event.event, transactionId: event.data.transaction.id, status: event.data.transaction.status, reference: event.data.transaction.reference }, '📬 Webhook de Wompi recibido')
 
     // Validar firma primero
-//    const isValidSignature = this.validateWebhookSignature(event)
-//    if (!isValidSignature && this.eventsSecret) {
-//      return { success: false, message: 'Invalid signature' }
-//    }
+    //    const isValidSignature = this.validateWebhookSignature(event)
+    //    if (!isValidSignature && this.eventsSecret) {
+    //      return { success: false, message: 'Invalid signature' }
+    //    }
 
     const { transaction } = event.data
 
     // Extraer el orderId de la referencia (formato: ORDER-{orderId})
     const reference = transaction.reference
     if (!reference || !reference.startsWith('ORDER-')) {
-      console.error('❌ Referencia inválida:', reference)
+      logger.error({ reference }, '❌ Referencia inválida')
       return { success: false, message: 'Invalid reference format' }
     }
 
     const orderId = reference.replace('ORDER-', '')
-    console.log('🔗 Conectando webhook con orden:', orderId)
+    logger.info({ orderId }, '🔗 Conectando webhook con orden')
 
     try {
       // Importar dinámicamente para evitar dependencias circulares
-  const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
-  const { sendOrderEmail } = await import('./mail.service.js')
-  const { assignKeysToUser } = await import('./product_key.service.js')
+      const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
+      const { sendOrderEmail } = await import('./mail.service.js')
+      const { assignKeysToUser } = await import('./product_key.service.js')
+      const { 
+        calculateEarnedPoints, 
+        addPoints, 
+        deductPoints, 
+        recordOrderPoints, 
+        pointsToPesos 
+      } = await import('./points.service.js')
 
       // Aquí implementa tu lógica de negocio según el estado de la transacción
       switch (transaction.status) {
         case 'APPROVED':
-          console.log('✅ Pago aprobado para orden:', orderId)
+          logger.info({ orderId }, '✅ Pago aprobado para orden')
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
+          
           // Intentar asignar claves y enviar email con factura y claves
           try {
             const userId = await getOrderUserId(orderId)
             const order = userId ? await getOrderById(userId, Number(orderId)) : null
-            
+
             if (!order) {
-              console.warn('⚠️ No se encontró la orden:', orderId)
+              logger.warn({ orderId }, '⚠️ No se encontró la orden')
               break
             }
+            logger.info({ order }, 'Orden obtenida')
 
-            const assignedKeysDetails: Array<{ productId: string, productName: string, keys: string[] }> = []
+            // ==========================================
+            // SISTEMA DE PUNTOS - INICIO
+            // ==========================================
+            let pointsUsed = 0
+            let pointsEarned = 0
+            let discountAmount = 0
+
+            if (userId) {
+              try {
+                // 1. Obtener puntos usados desde metadata/customer_data de la transacción
+                // Wompi puede enviar metadata en transaction.customer_data o en un campo custom
+                const metadata = transaction.customer_data || {}
+                const pointsToUse = metadata.points_to_use ? parseInt(String(metadata.points_to_use), 10) : 0
+
+                logger.info({ userId, pointsToUse, orderId }, '💎 Procesando puntos para orden')
+
+                // 2. Si el usuario usó puntos, deducir del balance
+                if (pointsToUse > 0) {
+                  const deducted = await deductPoints(
+                    userId,
+                    pointsToUse,
+                    `Usado en orden #${orderId}`,
+                    BigInt(orderId),
+                    { transactionId: transaction.id, reference: transaction.reference }
+                  )
+
+                  if (deducted) {
+                    pointsUsed = pointsToUse
+                    discountAmount = parseFloat(pointsToPesos(pointsToUse).toString())
+                    logger.info({ pointsUsed, discountAmount, orderId }, '✅ Puntos deducidos exitosamente')
+                  } else {
+                    logger.warn({ pointsToUse, orderId }, '⚠️ No se pudieron deducir los puntos')
+                  }
+                }
+
+                // 3. Calcular puntos ganados por esta compra
+                // Los puntos se calculan sobre el monto PAGADO (después del descuento)
+                const paidAmount = transaction.amount_in_cents / 100 // Convertir centavos a pesos
+                pointsEarned = calculateEarnedPoints(paidAmount)
+
+                // 4. Agregar puntos ganados al balance del usuario
+                if (pointsEarned > 0) {
+                  const added = await addPoints(
+                    userId,
+                    pointsEarned,
+                    'earned',
+                    `Ganado por compra de orden #${orderId}`,
+                    BigInt(orderId),
+                    { transactionId: transaction.id, reference: transaction.reference, paidAmount }
+                  )
+
+                  if (added) {
+                    logger.info({ pointsEarned, orderId }, '✅ Puntos ganados agregados exitosamente')
+                  } else {
+                    logger.warn({ pointsEarned, orderId }, '⚠️ No se pudieron agregar los puntos ganados')
+                  }
+                }
+
+                // 5. Registrar la transacción de puntos en order_points
+                if (pointsUsed > 0 || pointsEarned > 0) {
+                  const recorded = await recordOrderPoints(
+                    BigInt(orderId),
+                    userId,
+                    pointsUsed,
+                    pointsEarned,
+                    discountAmount
+                  )
+
+                  if (recorded) {
+                    logger.info({ pointsUsed, pointsEarned, discountAmount, orderId }, '✅ Puntos registrados en order_points')
+                  } else {
+                    logger.warn({ orderId }, '⚠️ No se pudieron registrar los puntos en order_points')
+                  }
+                }
+
+              } catch (pointsError) {
+                logger.error({ error: pointsError, orderId }, '❌ Error procesando puntos para orden')
+                // No fallar el proceso completo si hay error con puntos
+                // Los puntos se pueden ajustar manualmente después
+              }
+            }
+            // ==========================================
+            // SISTEMA DE PUNTOS - FIN
+            // ==========================================
+
+            const assignedKeysDetails: Array<{ 
+              productId: string
+              productName: string
+              keys: Array<{ id: string, license_key: string }> 
+            }> = []
             let totalKeysCount = 0
-            
+
             // Asignar claves para cada producto
-            if (Array.isArray(order.items)) {
-              for (const item of order.items) {
+            if (Array.isArray(order.order_items)) {
+              for (const item of order.order_items) {
                 try {
                   const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
-                  
+
                   if (assigned.length > 0) {
                     assignedKeysDetails.push({
                       productId: String(item.product_id),
                       productName: item.product?.name || `Producto #${item.product_id}`,
-                      keys: assigned.map(k => k.license_key)
+                      keys: assigned.map(k => ({ id: k.id, license_key: k.license_key }))
                     })
                     totalKeysCount += assigned.length
                   }
                 } catch (e) {
-                  console.warn('Error assigning keys for product', item.product_id, e)
+                  logger.warn({ productId: item.product_id, error: e }, 'Error assigning keys for product')
                 }
               }
             }
 
             // Preparar archivos adjuntos
             const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
-            
+
             // 1. Generar archivo TXT con las claves (si hay claves)
             if (assignedKeysDetails.length > 0) {
               let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
-║                  CLAVES DE LICENCIA - MERCADOR                 ║
-║                                                                ║
-║  Orden: ${reference.padEnd(52)} ║
-║  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} ║
+                  CLAVES DE LICENCIA - MERCADOR                 
+                                                                
+  Orden: ${reference.padEnd(52)} 
+  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} 
 ╚════════════════════════════════════════════════════════════════╝\n\n`
-              
+
               assignedKeysDetails.forEach((product) => {
                 keysFileContent += `\n${'='.repeat(64)}\n`
                 keysFileContent += `PRODUCTO: ${product.productName}\n`
                 keysFileContent += `ID: ${product.productId}\n`
                 keysFileContent += `CANTIDAD: ${product.keys.length} clave(s)\n`
                 keysFileContent += `${'='.repeat(64)}\n\n`
-                
+
                 product.keys.forEach((key, keyIdx) => {
-                  keysFileContent += `  ${keyIdx + 1}. ${key}\n`
+                  keysFileContent += `  ${keyIdx + 1}. [ID: ${key.id}] ${key.license_key}\n`
                 })
                 keysFileContent += '\n'
               })
-              
+
               keysFileContent += `\n${'='.repeat(64)}\n`
               keysFileContent += `IMPORTANTE:\n`
               keysFileContent += `- Guarda este archivo en un lugar seguro\n`
@@ -441,7 +514,7 @@ export class WompiService {
               keysFileContent += `- Cada clave es única y solo puede usarse una vez\n`
               keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
               keysFileContent += `${'='.repeat(64)}\n`
-              
+
               attachments.push({
                 data: Buffer.from(keysFileContent, 'utf-8'),
                 filename: `claves-orden-${orderId}.txt`,
@@ -450,17 +523,17 @@ export class WompiService {
             }
 
             // 2. Generar PDF de la factura (si está habilitado)
-            if (ENABLE_PDF_ATTACH && order.items && order.items.length > 0) {
+            if (ENABLE_PDF_ATTACH && order.order_items && order.order_items.length > 0) {
               try {
                 // Preparar datos de la factura
-                const invoiceItems = order.items.map(item => ({
+                const invoiceItems = order.order_items.map(item => ({
                   product_id: item.product_id,
                   name: item.product?.name || `Producto #${item.product_id}`,
                   quantity: item.quantity,
                   price: item.price
                 }))
 
-                const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                const subtotal = order.order_items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
                 const tax = 0 // Calcular IVA si es necesario
                 const total = subtotal + tax
 
@@ -480,9 +553,9 @@ export class WompiService {
                 invoiceUrl.searchParams.set('status', 'paid')
 
                 // Nota: el PDF se genera en mail.service.ts usando Puppeteer
-                console.log('📄 Factura PDF se generará desde:', invoiceUrl.toString().substring(0, 100) + '...')
+                logger.info({ invoiceUrl: invoiceUrl.toString().substring(0, 100) + '...' }, '📄 Factura PDF se generará desde')
               } catch (e) {
-                console.warn('⚠️ Error preparando datos de factura:', e)
+                logger.warn({ error: e }, '⚠️ Error preparando datos de factura')
               }
             }
 
@@ -492,30 +565,30 @@ export class WompiService {
               to: transaction.customer_email,
               subject: `✅ Orden ${reference} - Pago Confirmado`,
               templatePath: emailTemplateUrl,
-              templateQuery: { 
-                reference, 
+              templateQuery: {
+                reference,
                 status: 'confirmed',
                 keysCount: totalKeysCount.toString(),
                 orderId,
-                customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0]
+                customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0],
+                pointsUsed: pointsUsed.toString(),
+                pointsEarned: pointsEarned.toString(),
+                discountAmount: discountAmount.toString()
               },
               attachPdf: ENABLE_PDF_ATTACH,
               pdfFilename: `factura-${orderId}.pdf`,
               attachments
             })
-            
-            console.log(`✅ Email enviado exitosamente`)
-            console.log(`   📧 Destinatario: ${transaction.customer_email}`)
-            console.log(`   🔑 Claves asignadas: ${totalKeysCount}`)
-            console.log(`   📎 Adjuntos: ${attachments.length} archivo(s) + ${ENABLE_PDF_ATTACH ? '1 PDF' : '0 PDF'}`)
+
+            logger.info({ to: transaction.customer_email, keysCount: totalKeysCount, attachmentsCount: attachments.length, pdfAttached: ENABLE_PDF_ATTACH }, '✅ Email enviado exitosamente')
           } catch (err) {
-            console.warn('No se pudo asignar claves o enviar email de confirmación:', err)
+            logger.warn({ error: err }, 'No se pudo asignar claves o enviar email de confirmación')
           }
           // TODO: Liberar productos del inventario
           break
 
         case 'DECLINED':
-          console.log('❌ Pago rechazado para orden:', orderId)
+          logger.info({ orderId }, '❌ Pago rechazado para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // Notificar al cliente del rechazo
           try {
@@ -528,24 +601,24 @@ export class WompiService {
               attachPdf: false
             })
           } catch (err) {
-            console.warn('No se pudo enviar email de rechazo:', err)
+            logger.warn({ error: err }, 'No se pudo enviar email de rechazo')
           }
           // TODO: Restaurar items al carrito si es necesario
           break
 
         case 'PENDING':
-          console.log('⏳ Pago pendiente para orden:', orderId)
+          logger.info({ orderId }, '⏳ Pago pendiente para orden')
           await updateOrderStatusWithPayment(orderId, 'pending', transaction.id)
           break
 
         case 'VOIDED':
-          console.log('🚫 Pago anulado para orden:', orderId)
+          logger.info({ orderId }, '🚫 Pago anulado para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // TODO: Revertir la orden
           break
 
         case 'ERROR':
-          console.log('⚠️ Error en el pago para orden:', orderId)
+          logger.info({ orderId }, '⚠️ Error en el pago para orden')
           await updateOrderStatusWithPayment(orderId, 'cancelled', transaction.id)
           // Registrar el error y notificar
           try {
@@ -558,17 +631,17 @@ export class WompiService {
               attachPdf: false
             })
           } catch (err) {
-            console.warn('No se pudo enviar email de error de pago:', err)
+            logger.warn({ error: err }, 'No se pudo enviar email de error de pago')
           }
           break
 
         default:
-          console.log('❓ Estado desconocido para orden:', orderId, transaction.status)
+          logger.info({ orderId, status: transaction.status }, '❓ Estado desconocido para orden')
       }
 
       return { success: true, message: `Order ${reference} updated to ${transaction.status}` }
     } catch (error) {
-      console.error('❌ Error procesando webhook para orden:', orderId, error)
+      logger.error({ orderId, error }, '❌ Error procesando webhook para orden')
       return { success: false, message: `Failed to update order ${orderId}: ${error instanceof Error ? error.message : 'Unknown error'}` }
     }
   }

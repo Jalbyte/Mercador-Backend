@@ -3,6 +3,7 @@ import * as userService from '../services/user.service.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
 import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
 import { z as zod } from 'zod'
+import { logger } from '../utils/logger.js'
 
 export const adminUserRoutes = new OpenAPIHono()
 
@@ -14,7 +15,7 @@ adminUserRoutes.use('*', authMiddleware)
 const AdminUpdateUserSchema = zod.object({
   full_name: zod.string().min(2).optional(),
   country: zod.string().optional(),
-  email: zod.string().email().optional(),
+  email: zod.email().optional(),
   // Agrega más campos según tu tabla
 })
 
@@ -98,9 +99,9 @@ adminUserRoutes.openapi(
       return c.json({ success: true, user }, 200)
     } catch (err: any) {
       // Log detallado para depuración
-      console.error('Error en adminUpdateUser:', err);
+      logger.error({ err }, 'Error en adminUpdateUser');
       if (err && err.stack) {
-        console.error('Stack trace:', err.stack);
+        logger.error({ err, stack: err.stack }, 'Stack trace');
       }
       if (err.message === 'No autorizado') return c.json({ error: 'No autorizado' }, 401)
       return c.json({ error: err.message || 'Error', details: err }, 500)
@@ -130,17 +131,17 @@ adminUserRoutes.openapi(
     const userId = c.req.param('userId')
     if (!adminId || typeof adminId !== 'string' || !userId || typeof userId !== 'string') return c.json({ error: 'No autorizado' }, 401)
     try {
-      console.log(`[admin.users.delete] request received adminId=${adminId} targetUserId=${userId} tokenPresent=${!!token}`)
+      logger.info({ adminId, targetUserId: userId, tokenPresent: !!token }, '[admin.users.delete] request received');
       const result = await userService.adminDeleteUser(adminId, userId, token ?? '')
-      console.log(`[admin.users.delete] delete result adminId=${adminId} targetUserId=${userId}:`, result)
+      logger.info({ adminId, targetUserId: userId, result }, '[admin.users.delete] delete result');
       return c.json(result, 200)
     } catch (err: any) {
-      console.error(`[admin.users.delete] error deleting user adminId=${adminId} targetUserId=${userId}:`, err && (err.stack || err.message || err))
+      logger.error({ err, adminId, targetUserId: userId }, `[admin.users.delete] error deleting user`);
       // If the service returned a Supabase error object, log its details
       if (err && typeof err === 'object') {
         try {
           // @ts-ignore
-          if (err.error) console.error('[admin.users.delete] service error.detail:', JSON.stringify(err.error))
+          if (err.error) logger.error({ serviceError: err.error }, '[admin.users.delete] service error.detail');
         } catch (e) {
           // ignore
         }

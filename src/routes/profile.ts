@@ -32,6 +32,7 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import * as userService from '../services/user.service.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
 import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
+import { logger } from '../utils/logger.js'
 
 export const profileRoutes = new OpenAPIHono()
 
@@ -184,7 +185,7 @@ profileRoutes.openapi(updateProfileRoute, async (c) => {
       data: updatedProfile
     }, 200)
     } catch (error) {
-        console.error('Error updating profile:', error)
+        logger.error({ err: error }, 'Error updating profile:', error)
         return c.json({
             success: false,
             error: error instanceof Error ? error.message : 'Failed to update profile'
@@ -225,9 +226,9 @@ profileRoutes.openapi(
     const token = getTokenFromRequest(c)
     if (!userId) return c.json({ error: 'No autorizado' }, 401)
     try {
-      console.log(`[profile.delete] request received for userId=${userId} tokenPresent=${!!token}`)
+      logger.info({ userId, tokenPresent: !!token }, '[profile.delete] request received');
       const res = await userService.softDeleteUser(userId, token)
-      console.log(`[profile.delete] softDelete result for userId=${userId}:`, res)
+      logger.info({ userId, result: res }, '[profile.delete] softDelete result');
       // Invalidate server-side session and clear cookie so user is logged out
       try {
         await userService.signOut(token)
@@ -235,13 +236,13 @@ profileRoutes.openapi(
         // Set-Cookie header to instruct browser to remove session cookie
         c.header('Set-Cookie', clearCookie)
       } catch (signOutErr) {
-        console.error(`[profile.delete] signOut error for userId=${userId}:`, signOutErr)
+        logger.error({ err: signOutErr, userId }, `[profile.delete] signOut error`);
         // proceed: even if signOut fails, we already marked account deleted
       }
 
       return c.json({ success: true }, 200)
     } catch (err: any) {
-      console.error(`[profile.delete] error deleting account for userId=${userId}:`, err && (err.stack || err.message || err))
+      logger.error({ err, userId }, `[profile.delete] error deleting account`);
       return c.json({ error: err.message || 'Error' }, 500)
     }
   }
@@ -278,12 +279,12 @@ profileRoutes.openapi(
     const token = getTokenFromRequest(c)
     if (!userId) return c.json({ error: 'No autorizado' }, 401)
     try {
-      console.log(`[profile.restore] request received for userId=${userId} tokenPresent=${!!token}`)
+      logger.info({ userId, tokenPresent: !!token }, '[profile.restore] request received');
       const res = await userService.restoreUser(userId, token)
-      console.log(`[profile.restore] restore result for userId=${userId}:`, res)
+      logger.info({ userId, result: res }, '[profile.restore] restore result');
       return c.json({ success: true }, 200)
     } catch (err: any) {
-      console.error(`[profile.restore] error restoring account for userId=${userId}:`, err && (err.stack || err.message || err))
+      logger.error({ err, userId }, `[profile.restore] error restoring account`);
       return c.json({ error: err.message || 'Error' }, 500)
     }
   }
