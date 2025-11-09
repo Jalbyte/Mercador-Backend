@@ -224,7 +224,185 @@ export async function sendOrderEmail(opts: SendOrderEmailOptions): Promise<void>
   }
 }
 
+/**
+ * Enviar correo de notificación de devolución (aprobada/rechazada)
+ */
+export interface SendReturnEmailOptions {
+  to: string
+  customerName: string
+  returnId: number
+  orderId: number
+  orderReference: string
+  status: 'approved' | 'rejected'
+  refundAmount?: number
+  refundPoints?: number
+  refundMethod?: string
+  adminNotes?: string
+  reason?: string
+}
+
+export async function sendReturnEmail(opts: SendReturnEmailOptions): Promise<void> {
+  const {
+    to,
+    customerName,
+    returnId,
+    orderId,
+    orderReference,
+    status,
+    refundAmount,
+    refundPoints,
+    refundMethod,
+    adminNotes,
+    reason
+  } = opts
+
+  const statusText = status === 'approved' ? '✅ Aprobada' : '❌ Rechazada'
+  const subject = `${statusText} - Solicitud de devolución #${returnId}`
+
+  // Construir el HTML del correo directamente
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: ${status === 'approved' ? '#10b981' : '#ef4444'}; color: white; padding: 20px; text-align: center; border-radius: 8px; }
+        .content { background: #f9fafb; padding: 20px; margin: 20px 0; border-radius: 8px; }
+        .info-row { margin: 10px 0; }
+        .label { font-weight: bold; color: #4b5563; }
+        .value { color: #1f2937; }
+        .footer { text-align: center; color: #6b7280; font-size: 14px; margin-top: 30px; }
+        .refund-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 15px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>${statusText}</h1>
+        <p>Solicitud de Devolución #${returnId}</p>
+      </div>
+      
+      <div class="content">
+        <p>Hola <strong>${customerName}</strong>,</p>
+        <p>Tu solicitud de devolución ha sido <strong>${status === 'approved' ? 'aprobada' : 'rechazada'}</strong>.</p>
+        
+        <div class="info-row">
+          <span class="label">Devolución:</span>
+          <span class="value">#${returnId}</span>
+        </div>
+        
+        <div class="info-row">
+          <span class="label">Orden:</span>
+          <span class="value">#${orderId} (${orderReference})</span>
+        </div>
+  `
+
+  if (status === 'approved') {
+    html += `
+        <div class="refund-box">
+          <h3 style="margin-top: 0; color: #065f46;">💰 Información de Reembolso</h3>
+    `
+    
+    if (refundAmount && refundAmount > 0) {
+      html += `
+          <div class="info-row">
+            <span class="label">Monto en dinero:</span>
+            <span class="value">$${refundAmount.toLocaleString('es-CO')} COP</span>
+          </div>
+      `
+    }
+    
+    if (refundPoints && refundPoints > 0) {
+      html += `
+          <div class="info-row">
+            <span class="label">Puntos reembolsados:</span>
+            <span class="value">${refundPoints} puntos ($${(refundPoints * 10).toLocaleString('es-CO')} COP)</span>
+          </div>
+      `
+    }
+    
+    if (refundMethod) {
+      const methodText = refundMethod === 'original_payment' ? 'Método de pago original' : 
+                        refundMethod === 'store_credit' ? 'Crédito en tienda' :
+                        refundMethod === 'bank_transfer' ? 'Transferencia bancaria' : refundMethod
+      html += `
+          <div class="info-row">
+            <span class="label">Método de reembolso:</span>
+            <span class="value">${methodText}</span>
+          </div>
+      `
+    }
+    
+    html += `
+        </div>
+        <p style="color: #065f46;">✅ Tu reembolso será procesado en los próximos días hábiles.</p>
+    `
+  } else {
+    // Rechazada
+    if (reason) {
+      html += `
+        <div class="info-row">
+          <span class="label">Motivo de tu solicitud:</span>
+          <span class="value">${reason}</span>
+        </div>
+      `
+    }
+  }
+
+  if (adminNotes) {
+    html += `
+        <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 15px 0;">
+          <h4 style="margin-top: 0; color: #92400e;">📝 Nota del equipo:</h4>
+          <p style="margin: 0; color: #78350f;">${adminNotes}</p>
+        </div>
+    `
+  }
+
+  html += `
+      </div>
+      
+      <div class="footer">
+        <p>Gracias por tu preferencia</p>
+        <p><strong>Mercador</strong></p>
+        <p style="font-size: 12px;">Este es un correo automático, por favor no respondas a este mensaje.</p>
+      </div>
+    </body>
+    </html>
+  `
+
+  const message: any = {
+    from: `No Reply <noreply@auth.mercador.app>`,
+    to: [to],
+    subject,
+    html,
+  }
+
+  if (!mg) {
+    throw new Error('Mailgun client not configured (MAILGUN_API_KEY missing)')
+  }
+
+  try {
+    const result = await mg.messages.create(MAILGUN_DOMAIN, message)
+    logger.info({
+      to,
+      returnId,
+      status,
+      messageId: result.id,
+    }, 'Return email sent successfully')
+    return result
+  } catch (err: any) {
+    logger.error({
+      error: err,
+      message: (err && err.message) || err,
+      returnId,
+      to
+    }, 'Failed to send return email')
+    throw err
+  }
+}
+
 export default {
   sendOrderEmail,
   sendCheckoutEmail,
+  sendReturnEmail,
 }

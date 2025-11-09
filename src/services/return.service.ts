@@ -448,14 +448,66 @@ export class ReturnService {
                 throw new Error('Error al procesar la devolución');
             }
 
-            // 6. Si se rechaza, no hay más acciones
+            // 6. Obtener la devolución actualizada con información del usuario
+            const updatedReturn = await this.getReturnById(returnId, accessToken);
+
+            // 7. ENVIAR CORREO DE NOTIFICACIÓN AL USUARIO
+            try {
+                const { sendReturnEmail } = await import('./mail.service.js');
+                
+                // Obtener información del usuario desde la orden
+                const { data: userData, error: userError } = await client
+                    .from('profiles')
+                    .select('email, full_name')
+                    .eq('id', (returnData.order as any).user_id)
+                    .single();
+
+                if (!userError && userData) {
+                    // Extraer puntos reembolsados desde admin_notes si existen
+                    let refundPoints = 0;
+                    if (data.status === ReturnStatus.APPROVED && updateData.admin_notes) {
+                        const pointsMatch = updateData.admin_notes.match(/💎 Reembolso de puntos: (\d+) puntos/);
+                        if (pointsMatch) {
+                            refundPoints = parseInt(pointsMatch[1]);
+                        }
+                    }
+
+                    await sendReturnEmail({
+                        to: userData.email,
+                        customerName: userData.full_name || 'Cliente',
+                        returnId,
+                        orderId: returnData.order_id,
+                        orderReference: `ORD-${returnData.order_id}`,
+                        status: data.status === ReturnStatus.APPROVED ? 'approved' : 'rejected',
+                        refundAmount: data.status === ReturnStatus.APPROVED ? Number(updateData.refund_amount) : undefined,
+                        refundPoints: refundPoints > 0 ? refundPoints : undefined,
+                        refundMethod: data.refund_method,
+                        adminNotes: data.admin_notes,
+                        reason: returnData.reason,
+                    });
+
+                    logger.info({ 
+                        returnId, 
+                        userEmail: userData.email, 
+                        status: data.status 
+                    }, '📧 Correo de notificación enviado exitosamente');
+                }
+            } catch (emailError) {
+                logger.error({ 
+                    error: emailError, 
+                    returnId 
+                }, '❌ Error enviando correo de notificación (no crítico)');
+                // No fallar el proceso si el correo no se envía
+            }
+
+            // 8. Si se rechaza, no hay más acciones
             // Si se aprueba, los triggers de la BD se encargarán de:
             //   - Restaurar el stock (restore_product_stock_on_refund)
             //   - Crear crédito de tienda si aplica (create_store_credit_on_refund)
             //   - Registrar el cambio de estado (log_return_status_change)
 
-            // 7. Retornar la devolución actualizada
-            return await this.getReturnById(returnId, accessToken);
+            // 9. Retornar la devolución actualizada
+            return updatedReturn;
         } catch (error) {
             logger.error({ error }, 'Error in processReturn');
             throw error;
