@@ -536,10 +536,17 @@ export class ReturnService {
                 .filter(key => !returnedKeyIds.has(key.id))
                 .map(key => {
                     const product = Array.isArray(key.products) ? key.products[0] : key.products;
-                    // Mostrar solo últimos 4 caracteres de la clave
-                    const preview = key.license_key.length > 4
-                        ? `****-****-${key.license_key.slice(-4)}`
-                        : '****';
+                    // Mostrar primeros 4 caracteres de la clave y enmascarar el resto
+                    // Ejemplos:
+                    // - 'ABCD-EFGH-IJKL' -> 'ABCD-****-****' (si tiene separadores)
+                    // - 'ABCDEFGHIJKL' -> 'ABCD-****-****'
+                    // Si la clave es muy corta, mostrar lo disponible y enmascarar el resto
+                    const raw = String(key.license_key || '');
+                    const firstPart = raw.slice(0, 2);
+                    const hasMore = raw.length > 2;
+                    const masked = hasMore ? '****' : '';
+                    // Construir un preview legible; si la clave tiene guiones, sólo mostrar la primera porción
+                    const preview = firstPart + (masked ? `${masked}` : '');
 
                     return {
                         id: key.id,

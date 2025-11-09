@@ -39,10 +39,10 @@ async function testKeysEmail() {
 
   // Generar archivo de claves
   let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
-║                  CLAVES DE LICENCIA - MERCADOR                 ║
-║                                                                ║
-║  Orden: ${reference.padEnd(52)} ║
-║  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} ║
+                  CLAVES DE LICENCIA - MERCADOR                 
+                                                                
+  Orden: ${reference.padEnd(52)} 
+  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} 
 ╚════════════════════════════════════════════════════════════════╝
 
 `

@@ -362,7 +362,11 @@ export class WompiService {
             }
             logger.info({ order }, 'Orden obtenida')
 
-            const assignedKeysDetails: Array<{ productId: string, productName: string, keys: string[] }> = []
+            const assignedKeysDetails: Array<{ 
+              productId: string
+              productName: string
+              keys: Array<{ id: string, license_key: string }> 
+            }> = []
             let totalKeysCount = 0
 
             // Asignar claves para cada producto
@@ -375,7 +379,7 @@ export class WompiService {
                     assignedKeysDetails.push({
                       productId: String(item.product_id),
                       productName: item.product?.name || `Producto #${item.product_id}`,
-                      keys: assigned.map(k => k.license_key)
+                      keys: assigned.map(k => ({ id: k.id, license_key: k.license_key }))
                     })
                     totalKeysCount += assigned.length
                   }
@@ -391,10 +395,10 @@ export class WompiService {
             // 1. Generar archivo TXT con las claves (si hay claves)
             if (assignedKeysDetails.length > 0) {
               let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
-║                  CLAVES DE LICENCIA - MERCADOR                 ║
-║                                                                ║
-║  Orden: ${reference.padEnd(52)} ║
-║  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} ║
+                  CLAVES DE LICENCIA - MERCADOR                 
+                                                                
+  Orden: ${reference.padEnd(52)} 
+  Fecha: ${new Date().toLocaleDateString('es-CO').padEnd(52)} 
 ╚════════════════════════════════════════════════════════════════╝\n\n`
 
               assignedKeysDetails.forEach((product) => {
@@ -405,7 +409,7 @@ export class WompiService {
                 keysFileContent += `${'='.repeat(64)}\n\n`
 
                 product.keys.forEach((key, keyIdx) => {
-                  keysFileContent += `  ${keyIdx + 1}. ${key}\n`
+                  keysFileContent += `  ${keyIdx + 1}. [ID: ${key.id}] ${key.license_key}\n`
                 })
                 keysFileContent += '\n'
               })

@@ -609,43 +609,90 @@ export async function resendOrderKeys(orderId: number, accessToken: string): Pro
 
   // Importar servicio de email
   const { sendOrderEmail } = await import('./mail.service.js')
+  const { ENABLE_PDF_ATTACH, FRONTEND_URL } = await import('../config/env.js')
 
   // Preparar datos de las claves agrupadas por producto
   const productKeys: Array<{
     productId: number
     productName: string
-    quantity: number
-    keys: string[]
+    keys: Array<{ id: number, license_key: string }>
   }> = []
+
+  let totalKeysCount = 0
 
   for (const item of order.order_items || []) {
     const product = Array.isArray(item.products) ? item.products[0] : item.products
     const keys = Array.isArray(item.product_keys) 
-      ? item.product_keys.map((k: any) => k.license_key) 
+      ? item.product_keys.map((k: any) => ({ id: k.id, license_key: k.license_key }))
       : []
     
-    productKeys.push({
-      productId: product?.id || 0,
-      productName: product?.name || 'Unknown Product',
-      quantity: keys.length,
-      keys
+    if (keys.length > 0) {
+      productKeys.push({
+        productId: product?.id || 0,
+        productName: product?.name || 'Unknown Product',
+        keys
+      })
+      totalKeysCount += keys.length
+    }
+  }
+
+  // Preparar adjuntos
+  const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
+
+  // 1. Generar archivo TXT con las claves (con IDs)
+  if (productKeys.length > 0) {
+    const reference = `ORDER-${order.id}`
+    let keysFileContent = `╔════════════════════════════════════════════════════════════════╗
+                  CLAVES DE LICENCIA - MERCADOR                 
+                                                                
+  Orden: ${reference.padEnd(52)} 
+  Fecha: ${new Date(order.created_at).toLocaleDateString('es-CO').padEnd(52)} 
+╚════════════════════════════════════════════════════════════════╝\n\n`
+
+    productKeys.forEach((product) => {
+      keysFileContent += `\n${'='.repeat(64)}\n`
+      keysFileContent += `PRODUCTO: ${product.productName}\n`
+      keysFileContent += `ID: ${product.productId}\n`
+      keysFileContent += `CANTIDAD: ${product.keys.length} clave(s)\n`
+      keysFileContent += `${'='.repeat(64)}\n\n`
+
+      product.keys.forEach((key, keyIdx) => {
+        keysFileContent += `  ${keyIdx + 1}. [ID: ${key.id}] ${key.license_key}\n`
+      })
+      keysFileContent += '\n'
+    })
+
+    keysFileContent += `\n${'='.repeat(64)}\n`
+    keysFileContent += `IMPORTANTE:\n`
+    keysFileContent += `- Guarda este archivo en un lugar seguro\n`
+    keysFileContent += `- No compartas tus claves con nadie\n`
+    keysFileContent += `- Cada clave es única y solo puede usarse una vez\n`
+    keysFileContent += `- También puedes ver tus claves en tu perfil de Mercador\n`
+    keysFileContent += `${'='.repeat(64)}\n`
+
+    attachments.push({
+      data: Buffer.from(keysFileContent, 'utf-8'),
+      filename: `claves-orden-${order.id}.txt`,
+      contentType: 'text/plain; charset=utf-8'
     })
   }
 
-  // Construir template query para email con claves
+  // Construir template query para email
   const templateQuery: Record<string, string> = {
-    orderId: `ORDER-${order.id}`,
-    orderDate: new Date(order.created_at).toLocaleDateString('es-CO'),
-    customerName: profile.full_name || profile.email,
-    products: JSON.stringify(productKeys)
+    reference: `ORDER-${order.id}`,
+    status: 'confirmed',
+    keysCount: totalKeysCount.toString(),
+    orderId: order.id.toString(),
+    customerName: profile.full_name || profile.email
   }
 
-  // Enviar email con las claves
+  // Enviar email con las claves en archivo TXT adjunto
   await sendOrderEmail({
     to: profile.email,
-    subject: `Claves de Licencia - Orden ${order.id}`,
-    templatePath: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/email/license-keys`,
+    subject: `🔑 Claves de Licencia - Orden ORDER-${order.id}`,
+    templatePath: `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`,
     templateQuery,
-    attachPdf: false
+    attachPdf: false, // No enviar PDF en reenvío, solo las claves
+    attachments
   })
 }

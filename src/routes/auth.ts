@@ -29,7 +29,7 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import jwt from 'jsonwebtoken'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
 // Renombrado para mayor claridad, asumiendo que user.service.js exporta las funciones de auth.ts
-import { NODE_ENV, REFRESH_TOKEN_TTL_DAYS } from '../config/env.js'
+import { API_URL, NODE_ENV, REFRESH_TOKEN_TTL_DAYS } from '../config/env.js'
 import { supabase } from '../config/supabase.js'
 import { authMiddleware } from '../middlewares/authMiddleware.js'
 import { cookieToAuthHeader } from '../middlewares/cookieToAuthHeader.js'
@@ -42,7 +42,7 @@ const authRoutes = new OpenAPIHono()
 
 const DOMAIN = NODE_ENV === 'production'
   ? '.mercador.app' // ← cambia por tu dominio real
-  : 'localhost';
+  : API_URL;
 
 // Helper: Extrae token desde Authorization header o cookie sb_access_token
 function getTokenFromRequest(c: any): string | undefined {
