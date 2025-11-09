@@ -107,7 +107,12 @@ export async function deleteProductKey(id: string): Promise<void> {
  * Assign up to `count` available keys for a product to a given user.
  * Returns the keys that were assigned.
  */
-export async function assignKeysToUser(product_id: string, user_id: string, count: number): Promise<ProductKey[]> {
+export async function assignKeysToUser(
+  product_id: string, 
+  user_id: string, 
+  count: number, 
+  order_item_id?: number
+): Promise<ProductKey[]> {
   const db = supabaseAdmin ?? supabase
 
   // Find available keys (not assigned and status available)
@@ -127,9 +132,20 @@ export async function assignKeysToUser(product_id: string, user_id: string, coun
 
   const assigned: ProductKey[] = []
   for (const key of availableKeys) {
+    const updateData: any = { 
+      user_id, 
+      status: 'assigned', 
+      updated_at: new Date().toISOString() 
+    }
+    
+    // Add order_item_id if provided for traceability
+    if (order_item_id) {
+      updateData.order_item_id = order_item_id
+    }
+
     const { data: updated, error: updErr } = await db
       .from('product_keys')
-      .update({ user_id, status: 'assigned', updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq('id', key.id)
       .select()
       .single()

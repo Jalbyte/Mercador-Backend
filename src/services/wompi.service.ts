@@ -475,7 +475,7 @@ export class WompiService {
             if (Array.isArray(order.order_items)) {
               for (const item of order.order_items) {
                 try {
-                  const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity)
+                  const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity, item.id)
 
                   if (assigned.length > 0) {
                     assignedKeysDetails.push({

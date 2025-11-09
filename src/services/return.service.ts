@@ -99,7 +99,7 @@ export class ReturnService {
 
             // 5. Validar que las claves están en estado válido para devolución
             const invalidStatusKeys = productKeys.filter(
-                key => !['active', 'assigned'].includes(key.status)
+                key => !['enabled', 'assigned'].includes(key.status)
             );
             if (invalidStatusKeys.length > 0) {
                 throw new ValidationError(`Una o más claves no pueden devolverse (estado inválido)`);
@@ -600,6 +600,40 @@ export class ReturnService {
             }
 
             // 5. Obtener todas las claves de la orden que aún no se han devuelto
+            // Primero obtener los order_items de esta orden
+            const { data: orderItems, error: itemsError } = await client
+                .from('order_items')
+                .select('id')
+                .eq('order_id', orderId);
+
+            if (itemsError) {
+                logger.error({ error: itemsError }, 'Error fetching order items');
+                return {
+                    eligible: false,
+                    order_id: orderId,
+                    order_date: orderDate,
+                    days_since_purchase: daysSince,
+                    return_window_days: returnWindowDays,
+                    available_keys: [],
+                    reason: 'Error al obtener items de la orden',
+                };
+            }
+
+            if (!orderItems || orderItems.length === 0) {
+                return {
+                    eligible: false,
+                    order_id: orderId,
+                    order_date: orderDate,
+                    days_since_purchase: daysSince,
+                    return_window_days: returnWindowDays,
+                    available_keys: [],
+                    reason: 'La orden no tiene items',
+                };
+            }
+
+            const orderItemIds = orderItems.map(item => item.id);
+
+            // Ahora obtener las claves que pertenecen a estos order_items
             const { data: productKeys, error: keysError } = await client
                 .from('product_keys')
                 .select(`
@@ -607,6 +641,7 @@ export class ReturnService {
                     product_id,
                     license_key,
                     status,
+                    order_item_id,
                     products (
                         id,
                         name,
@@ -614,7 +649,8 @@ export class ReturnService {
                     )
                 `)
                 .eq('user_id', order.user_id)
-                .in('status', ['active', 'assigned']);
+                .in('order_item_id', orderItemIds)
+                .in('status', ['enabled', 'assigned']);
 
             if (keysError) {
                 logger.error({ error: keysError }, 'Error fetching product keys');
