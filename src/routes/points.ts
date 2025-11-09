@@ -370,4 +370,116 @@ points.get('/order/:orderId', async (c) => {
   }
 })
 
+/**
+ * POST /points/pre-use
+ * Guardar los puntos que el usuario quiere usar en una orden ANTES del pago
+ * Esto permite que el webhook de Wompi consulte cuántos puntos usar
+ * 
+ * Body:
+ * {
+ *   orderId: 123,
+ *   pointsToUse: 100
+ * }
+ * 
+ * Response:
+ * {
+ *   success: true,
+ *   orderId: 123,
+ *   pointsToUse: 100,
+ *   discountAmount: 1000
+ * }
+ */
+points.post('/pre-use', async (c) => {
+  try {
+    const userId = c.get('userId') as string
+
+    if (!userId) {
+      return c.json({ error: 'Usuario no autenticado' }, 401)
+    }
+
+    const body = await c.req.json()
+    const { orderId, pointsToUse } = body
+
+    // Validar parámetros
+    if (!orderId || isNaN(Number(orderId))) {
+      return c.json({ error: 'orderId inválido o faltante' }, 400)
+    }
+
+    if (pointsToUse === undefined || typeof pointsToUse !== 'number' || pointsToUse < 0) {
+      return c.json({ error: 'pointsToUse debe ser un número positivo o cero' }, 400)
+    }
+
+    // Si no usa puntos, no hacer nada
+    if (pointsToUse === 0) {
+      logger.info({ orderId, userId }, 'No points to use for this order')
+      return c.json({
+        success: true,
+        orderId: Number(orderId),
+        pointsToUse: 0,
+        discountAmount: 0
+      })
+    }
+
+    // Obtener balance actual
+    const balance = await getUserPointsBalance(userId)
+
+    if (!balance) {
+      return c.json({ error: 'No se pudo obtener el balance de puntos' }, 500)
+    }
+
+    // Validar que tenga suficientes puntos
+    if (balance.balance < pointsToUse) {
+      return c.json({ 
+        error: 'Puntos insuficientes',
+        details: {
+          requested: pointsToUse,
+          available: balance.balance
+        }
+      }, 400)
+    }
+
+    // Calcular descuento
+    const discountAmount = parseFloat(pointsToPesos(pointsToUse).toString())
+
+    // Guardar en order_points (o crear si no existe)
+    // Esto permite que el webhook consulte cuántos puntos usar
+    const { supabaseAdmin } = await import('../config/supabase.js')
+    
+    const { error: upsertError } = await supabaseAdmin
+      .from('order_points')
+      .upsert({
+        order_id: Number(orderId), // Convertir a number para Supabase
+        user_id: userId,
+        points_used: pointsToUse,
+        points_earned: 0, // Se calculará después del pago
+        discount_amount: discountAmount
+      }, {
+        onConflict: 'order_id'
+      })
+
+    if (upsertError) {
+      logger.error({ error: upsertError, orderId, userId }, 'Error saving pre-use points')
+      return c.json({ error: 'No se pudieron guardar los puntos' }, 500)
+    }
+
+    logger.info({ 
+      orderId, 
+      userId, 
+      pointsToUse, 
+      discountAmount 
+    }, 'Points pre-use saved successfully')
+
+    return c.json({
+      success: true,
+      orderId: Number(orderId),
+      pointsToUse,
+      discountAmount
+    })
+
+  } catch (error) {
+    logger.error({ error }, 'Error in pre-use points')
+    return c.json({ error: 'Error interno del servidor' }, 500)
+  }
+})
+
 export default points

@@ -379,12 +379,12 @@ export class WompiService {
 
             if (userId) {
               try {
-                // 1. Obtener puntos usados desde metadata/customer_data de la transacción
-                // Wompi puede enviar metadata en transaction.customer_data o en un campo custom
-                const metadata = transaction.customer_data || {}
-                const pointsToUse = metadata.points_to_use ? parseInt(String(metadata.points_to_use), 10) : 0
+                // 1. Obtener puntos usados desde la tabla order_points (pre-guardados antes del pago)
+                const { getOrderPoints } = await import('./points.service.js')
+                const orderPoints = await getOrderPoints(BigInt(orderId))
+                const pointsToUse = orderPoints?.points_used || 0
 
-                logger.info({ userId, pointsToUse, orderId }, '💎 Procesando puntos para orden')
+                logger.info({ userId, pointsToUse, orderId, foundInOrderPoints: !!orderPoints }, '💎 Procesando puntos para orden')
 
                 // 2. Si el usuario usó puntos, deducir del balance
                 if (pointsToUse > 0) {
@@ -428,21 +428,30 @@ export class WompiService {
                   }
                 }
 
-                // 5. Registrar la transacción de puntos en order_points
+                // 5. Actualizar order_points con los puntos ganados (el registro ya existe del pre-use)
                 if (pointsUsed > 0 || pointsEarned > 0) {
-                  const recorded = await recordOrderPoints(
-                    BigInt(orderId),
-                    userId,
-                    pointsUsed,
-                    pointsEarned,
-                    discountAmount
-                  )
+                  const { supabaseAdmin } = await import('../config/supabase.js')
+                  
+                  // Actualizar el registro existente con los puntos ganados
+                  const { error: updateError } = await supabaseAdmin
+                    .from('order_points')
+                    .update({
+                      points_earned: pointsEarned,
+                      discount_amount: discountAmount
+                    })
+                    .eq('order_id', Number(orderId))
 
-                  if (recorded) {
-                    logger.info({ pointsUsed, pointsEarned, discountAmount, orderId }, '✅ Puntos registrados en order_points')
+                  if (updateError) {
+                    logger.warn({ error: updateError, orderId }, '⚠️ No se pudieron actualizar los puntos en order_points')
                   } else {
-                    logger.warn({ orderId }, '⚠️ No se pudieron registrar los puntos en order_points')
+                    logger.info({ pointsUsed, pointsEarned, discountAmount, orderId }, '✅ Puntos actualizados en order_points')
                   }
+                }
+
+                // 6. Actualizar la columna points_to_use en la tabla orders
+                if (pointsUsed > 0) {
+                  await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id, undefined, pointsUsed)
+                  logger.info({ orderId, pointsUsed }, '✅ points_to_use actualizado en orders')
                 }
 
               } catch (pointsError) {

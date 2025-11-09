@@ -335,7 +335,8 @@ export async function updateOrderStatusWithPayment(
   orderId: string,
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled',
   paymentId?: string,
-  accessToken?: string
+  accessToken?: string,
+  pointsToUse?: number
 ) {
   // Log del payment_id para trazabilidad
   if (paymentId) {
@@ -347,12 +348,20 @@ export async function updateOrderStatusWithPayment(
     ? createSupabaseClient(accessToken) 
     : (supabaseAdmin || supabase);
 
+  // Construir objeto de actualización
+  const updateData: any = {
+    status,
+    updated_at: nowWithLocalOffset(),
+  }
+
+  // Si se proporcionan puntos, agregarlos al update
+  if (pointsToUse !== undefined) {
+    updateData.points_to_use = pointsToUse
+  }
+
   const { data: order, error } = await client
     .from('orders')
-    .update({
-      status,
-      updated_at: nowWithLocalOffset(),
-    })
+    .update(updateData)
     .eq('id', orderId)
     .select()
     .single();
