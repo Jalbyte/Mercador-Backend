@@ -299,10 +299,13 @@ export class ReturnService {
         try {
             const client = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin ?? createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
 
-            // 1. Obtener la devolución
+            // 1. Obtener la devolución con información de la orden
             const { data: returnData, error: fetchError } = await client
                 .from('returns')
-                .select('*')
+                .select(`
+                    *,
+                    order:orders(id, user_id, total_amount, status)
+                `)
                 .eq('id', returnId)
                 .single();
 
@@ -320,7 +323,7 @@ export class ReturnService {
                 throw new ValidationError('Debe especificar un método de reembolso');
             }
 
-            // 4. Actualizar la devolución
+            // 4. Preparar datos de actualización
             const updateData: any = {
                 status: data.status,
                 admin_notes: data.admin_notes,
@@ -334,6 +337,107 @@ export class ReturnService {
                 updateData.status = ReturnStatus.REFUNDED;
             }
 
+            // ==========================================
+            // SISTEMA DE PUNTOS - REEMBOLSO PROPORCIONAL
+            // ==========================================
+            if (data.status === ReturnStatus.APPROVED && returnData.order) {
+                try {
+                    // Importar servicios de puntos
+                    const { 
+                        getOrderPoints, 
+                        calculateProportionalRefund, 
+                        addPoints 
+                    } = await import('./points.service.js');
+
+                    const orderId = returnData.order_id;
+                    const userId = (returnData.order as any).user_id;
+                    const refundAmount = Number(returnData.refund_amount);
+                    const orderTotal = Number((returnData.order as any).total_amount);
+
+                    logger.info({ 
+                        returnId, 
+                        orderId, 
+                        userId, 
+                        refundAmount, 
+                        orderTotal 
+                    }, '🔄 Procesando reembolso con puntos');
+
+                    // Obtener información de puntos de la orden
+                    const orderPoints = await getOrderPoints(BigInt(orderId));
+
+                    if (orderPoints && orderPoints.points_used > 0) {
+                        logger.info({ 
+                            orderPoints, 
+                            returnId 
+                        }, '💎 Orden usó puntos, calculando reembolso proporcional');
+
+                        // Calcular reembolso proporcional
+                        const refundBreakdown = calculateProportionalRefund(
+                            orderTotal,
+                            orderPoints.points_used,
+                            refundAmount
+                        );
+
+                        logger.info({ 
+                            refundBreakdown, 
+                            returnId 
+                        }, '📊 Reembolso proporcional calculado');
+
+                        // Reembolsar puntos al usuario
+                        if (refundBreakdown.pointsRefund > 0) {
+                            const pointsRefunded = await addPoints(
+                                userId,
+                                refundBreakdown.pointsRefund,
+                                'refund',
+                                `Reembolso por devolución #${returnId} de orden #${orderId}`,
+                                BigInt(orderId),
+                                { 
+                                    returnId, 
+                                    originalPointsUsed: orderPoints.points_used,
+                                    refundAmount,
+                                    moneyRefund: refundBreakdown.moneyRefund,
+                                    pointsRefund: refundBreakdown.pointsRefund
+                                }
+                            );
+
+                            if (pointsRefunded) {
+                                logger.info({ 
+                                    pointsRefund: refundBreakdown.pointsRefund, 
+                                    returnId 
+                                }, '✅ Puntos reembolsados exitosamente');
+
+                                // Actualizar el monto de reembolso en dinero (no incluye puntos)
+                                updateData.refund_amount = refundBreakdown.moneyRefund;
+                                
+                                // Agregar nota sobre el reembolso de puntos
+                                const pointsNote = `\n\n💎 Reembolso de puntos: ${refundBreakdown.pointsRefund} puntos ($${refundBreakdown.pointsRefund * 10} COP)`;
+                                updateData.admin_notes = (data.admin_notes || '') + pointsNote;
+                            } else {
+                                logger.warn({ 
+                                    returnId 
+                                }, '⚠️ No se pudieron reembolsar los puntos');
+                            }
+                        }
+                    } else {
+                        logger.info({ 
+                            returnId 
+                        }, 'ℹ️ Orden no usó puntos, reembolso solo en dinero');
+                    }
+
+                } catch (pointsError) {
+                    logger.error({ 
+                        error: pointsError, 
+                        returnId 
+                    }, '❌ Error procesando reembolso de puntos');
+                    // No fallar el proceso completo si hay error con puntos
+                    // Los puntos se pueden ajustar manualmente después
+                }
+            }
+            // ==========================================
+            // FIN SISTEMA DE PUNTOS
+            // ==========================================
+
+            // 5. Actualizar la devolución
             const { error: updateError } = await client
                 .from('returns')
                 .update(updateData)
@@ -344,13 +448,13 @@ export class ReturnService {
                 throw new Error('Error al procesar la devolución');
             }
 
-            // 5. Si se rechaza, no hay más acciones
+            // 6. Si se rechaza, no hay más acciones
             // Si se aprueba, los triggers de la BD se encargarán de:
             //   - Restaurar el stock (restore_product_stock_on_refund)
             //   - Crear crédito de tienda si aplica (create_store_credit_on_refund)
             //   - Registrar el cambio de estado (log_return_status_change)
 
-            // 6. Retornar la devolución actualizada
+            // 7. Retornar la devolución actualizada
             return await this.getReturnById(returnId, accessToken);
         } catch (error) {
             logger.error({ error }, 'Error in processReturn');

@@ -345,12 +345,20 @@ export class WompiService {
       const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
       const { sendOrderEmail } = await import('./mail.service.js')
       const { assignKeysToUser } = await import('./product_key.service.js')
+      const { 
+        calculateEarnedPoints, 
+        addPoints, 
+        deductPoints, 
+        recordOrderPoints, 
+        pointsToPesos 
+      } = await import('./points.service.js')
 
       // Aquí implementa tu lógica de negocio según el estado de la transacción
       switch (transaction.status) {
         case 'APPROVED':
           logger.info({ orderId }, '✅ Pago aprobado para orden')
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
+          
           // Intentar asignar claves y enviar email con factura y claves
           try {
             const userId = await getOrderUserId(orderId)
@@ -361,6 +369,91 @@ export class WompiService {
               break
             }
             logger.info({ order }, 'Orden obtenida')
+
+            // ==========================================
+            // SISTEMA DE PUNTOS - INICIO
+            // ==========================================
+            let pointsUsed = 0
+            let pointsEarned = 0
+            let discountAmount = 0
+
+            if (userId) {
+              try {
+                // 1. Obtener puntos usados desde metadata/customer_data de la transacción
+                // Wompi puede enviar metadata en transaction.customer_data o en un campo custom
+                const metadata = transaction.customer_data || {}
+                const pointsToUse = metadata.points_to_use ? parseInt(String(metadata.points_to_use), 10) : 0
+
+                logger.info({ userId, pointsToUse, orderId }, '💎 Procesando puntos para orden')
+
+                // 2. Si el usuario usó puntos, deducir del balance
+                if (pointsToUse > 0) {
+                  const deducted = await deductPoints(
+                    userId,
+                    pointsToUse,
+                    `Usado en orden #${orderId}`,
+                    BigInt(orderId),
+                    { transactionId: transaction.id, reference: transaction.reference }
+                  )
+
+                  if (deducted) {
+                    pointsUsed = pointsToUse
+                    discountAmount = parseFloat(pointsToPesos(pointsToUse).toString())
+                    logger.info({ pointsUsed, discountAmount, orderId }, '✅ Puntos deducidos exitosamente')
+                  } else {
+                    logger.warn({ pointsToUse, orderId }, '⚠️ No se pudieron deducir los puntos')
+                  }
+                }
+
+                // 3. Calcular puntos ganados por esta compra
+                // Los puntos se calculan sobre el monto PAGADO (después del descuento)
+                const paidAmount = transaction.amount_in_cents / 100 // Convertir centavos a pesos
+                pointsEarned = calculateEarnedPoints(paidAmount)
+
+                // 4. Agregar puntos ganados al balance del usuario
+                if (pointsEarned > 0) {
+                  const added = await addPoints(
+                    userId,
+                    pointsEarned,
+                    'earned',
+                    `Ganado por compra de orden #${orderId}`,
+                    BigInt(orderId),
+                    { transactionId: transaction.id, reference: transaction.reference, paidAmount }
+                  )
+
+                  if (added) {
+                    logger.info({ pointsEarned, orderId }, '✅ Puntos ganados agregados exitosamente')
+                  } else {
+                    logger.warn({ pointsEarned, orderId }, '⚠️ No se pudieron agregar los puntos ganados')
+                  }
+                }
+
+                // 5. Registrar la transacción de puntos en order_points
+                if (pointsUsed > 0 || pointsEarned > 0) {
+                  const recorded = await recordOrderPoints(
+                    BigInt(orderId),
+                    userId,
+                    pointsUsed,
+                    pointsEarned,
+                    discountAmount
+                  )
+
+                  if (recorded) {
+                    logger.info({ pointsUsed, pointsEarned, discountAmount, orderId }, '✅ Puntos registrados en order_points')
+                  } else {
+                    logger.warn({ orderId }, '⚠️ No se pudieron registrar los puntos en order_points')
+                  }
+                }
+
+              } catch (pointsError) {
+                logger.error({ error: pointsError, orderId }, '❌ Error procesando puntos para orden')
+                // No fallar el proceso completo si hay error con puntos
+                // Los puntos se pueden ajustar manualmente después
+              }
+            }
+            // ==========================================
+            // SISTEMA DE PUNTOS - FIN
+            // ==========================================
 
             const assignedKeysDetails: Array<{ 
               productId: string
@@ -477,7 +570,10 @@ export class WompiService {
                 status: 'confirmed',
                 keysCount: totalKeysCount.toString(),
                 orderId,
-                customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0]
+                customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0],
+                pointsUsed: pointsUsed.toString(),
+                pointsEarned: pointsEarned.toString(),
+                discountAmount: discountAmount.toString()
               },
               attachPdf: ENABLE_PDF_ATTACH,
               pdfFilename: `factura-${orderId}.pdf`,

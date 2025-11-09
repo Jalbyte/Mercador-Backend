@@ -250,7 +250,8 @@ authRoutes.openapi(loginRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
     // Ensure any stale access cookie scoped to /auth is cleared (prevents duplicate sb_access_token entries)
     const clearAccessAuth = [
@@ -259,7 +260,8 @@ authRoutes.openapi(loginRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
 
     return c.json({
@@ -328,7 +330,8 @@ authRoutes.openapi(logoutRoute, async (c) => {
     `Path=/auth`,
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
-    `SameSite=Lax`
+    `SameSite=Lax`,
+    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   // Also clear any sb_access_token that might be scoped to /auth (duplicates)
@@ -338,7 +341,8 @@ authRoutes.openapi(logoutRoute, async (c) => {
     `Path=/auth`,
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
-    `SameSite=Lax`
+    `SameSite=Lax`,
+    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   // Attempt to revoke refresh token in Redis if provided by client
@@ -472,7 +476,8 @@ authRoutes.openapi(refreshRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
 
     // Clear any stale sb_access_token set with Path=/auth to avoid duplicates
@@ -482,7 +487,8 @@ authRoutes.openapi(refreshRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
 
     const csrf = issueCsrfCookie()
@@ -566,7 +572,8 @@ authRoutes.openapi(sessionRoute, async (c) => {
         `Path=/auth`,
         `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
         isProduction ? 'Secure' : '',
-        `SameSite=Lax`
+        `SameSite=Lax`,
+        isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
       ].filter(Boolean).join('; ')
       cookies.push(refreshCookie)
     }
@@ -578,7 +585,8 @@ authRoutes.openapi(sessionRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
     cookies.push(clearAccessAuth)
 
@@ -729,7 +737,8 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
     const clearAccessAuth = [
       `sb_access_token=;`,
@@ -737,7 +746,8 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       `Path=/auth`,
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
-      `SameSite=Lax`
+      `SameSite=Lax`,
+      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
     ].filter(Boolean).join('; ')
 
     return c.json({

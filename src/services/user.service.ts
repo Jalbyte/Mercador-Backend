@@ -10,12 +10,16 @@
 
 import type { Factor, Session } from '@supabase/supabase-js'
 import { createClient } from '@supabase/supabase-js'
-import { APP_REDIRECT_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/env.js'
+import { APP_REDIRECT_URL, SUPABASE_ANON_KEY, SUPABASE_URL, NODE_ENV, API_URL } from '../config/env.js'
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { redisService } from '../services/redis.service.js'
 import { Context } from 'hono'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
 import { logger } from '../utils/logger.js'
+
+const DOMAIN = NODE_ENV === 'production'
+  ? '.mercador.app' // ← cambia por tu dominio real
+  : API_URL;
 
 /**
  * Interfaz que representa el perfil de un usuario en el sistema.
@@ -535,14 +539,15 @@ export function clearCookie(name: string, path = '/') {
 }
 
 export const clearSessionCookie = (): string => {
-  const isProduction = process.env.NODE_ENV === 'production'
+  const isProduction = NODE_ENV === 'production'
   const accessCookie = [
     `sb_access_token=;`,
     `HttpOnly`,
     `Path=/`,
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
-    `SameSite=Lax`
+    `SameSite=Lax`,
+    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   const refreshCookie = [
@@ -551,7 +556,8 @@ export const clearSessionCookie = (): string => {
     `Path=/auth`,
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
-    `SameSite=Lax`
+    `SameSite=Lax`,
+    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   const csrf = issueCsrfCookie()
