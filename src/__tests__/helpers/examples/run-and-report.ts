@@ -13,7 +13,7 @@
 import { config } from 'dotenv';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { TestRailReporter } from '../testrail-reporter.js';
+import { TestRailReporter, extractCaseId, formatElapsedTime } from '../testrail-reporter.js';
 
 const execAsync = promisify(exec);
 
@@ -37,8 +37,8 @@ async function runTestsAndReport() {
     console.log('📝 Creando Test Run en TestRail...');
     runId = await reporter.createTestRun(
       `Automated Test Run - ${new Date().toLocaleString('es-CO')}`,
-      'Tests automatizados del módulo de autenticación (Registro de usuario)',
-      [38] // Solo incluir el caso C38
+      'Tests automatizados de autenticación y gestión de productos',
+      [38, 41, 42, 44, 58, 62, 75, 80, 81]
     );
 
     if (runId === 0) {
@@ -49,86 +49,135 @@ async function runTestsAndReport() {
     console.log(`✅ Test Run creado: ID ${runId}\n`);
 
     // 2. Ejecutar los tests
-    console.log('🧪 Ejecutando tests de registro...');
+    console.log('🧪 Ejecutando tests de autenticación y productos...');
     const startTime = Date.now();
     
+    let stdout = '';
+    let stderr = '';
+    let testExitCode = 0;
+
     try {
-      const { stdout, stderr } = await execAsync(
-        'npx vitest run src/__tests__/auth/register.test.ts --reporter=json',
-        { maxBuffer: 10 * 1024 * 1024 }
+      // Ejecutar tests específicos (evita glob que puede fallar)
+      const result = await execAsync(
+        'npx vitest run src/__tests__/auth/register.test.ts src/__tests__/auth/login.test.ts src/__tests__/auth/login-mfa.test.ts src/__tests__/auth/token-validation.test.ts src/__tests__/auth/login-failed.test.ts src/__tests__/auth/logout.test.ts src/__tests__/products/create-product.test.ts src/__tests__/products/create-product-invalid-price.test.ts src/__tests__/products/create-product-invalid-stock.test.ts --reporter=json',
+        { maxBuffer: 20 * 1024 * 1024 }
       );
+      stdout = result.stdout;
+      stderr = result.stderr;
+    } catch (execError: any) {
+      // exec falla con código != 0, pero puede haber stdout con resultados
+      stdout = execError.stdout || '';
+      stderr = execError.stderr || '';
+      testExitCode = execError.code || 1;
+      console.warn(`⚠️ Vitest terminó con código ${testExitCode}, pero intentaremos parsear resultados...`);
+    }
 
-      const duration = Date.now() - startTime;
-      const elapsed = `${Math.round(duration / 1000)}s`;
+    const duration = Date.now() - startTime;
+    const elapsed = `${Math.round(duration / 1000)}s`;
 
-      // Parsear resultados
-      let testResults;
-      try {
-        // Extraer el JSON del output (puede contener otros mensajes)
-        const jsonMatch = stdout.match(/\{[\s\S]*"testResults"[\s\S]*\}/);
+    // Parsear resultados JSON de Vitest
+    let testResults: any = null;
+    try {
+      // Dividir stdout en líneas y buscar la que contenga el JSON de Vitest
+      const lines = stdout.split('\n');
+      let jsonLine = '';
+      
+      // Buscar la línea que contiene el JSON de Vitest (empieza con { y tiene "testResults")
+      for (const line of lines) {
+        if (line.trim().startsWith('{') && line.includes('"testResults"')) {
+          jsonLine = line.trim();
+          break;
+        }
+      }
+      
+      if (jsonLine) {
+        testResults = JSON.parse(jsonLine);
+        console.log(`✅ JSON parseado: ${testResults.numTotalTests} tests totales, ${testResults.numPassedTests} pasaron`);
+      } else {
+        // Fallback: buscar el JSON completo en todo el stdout
+        const jsonMatch = stdout.match(/\{[\s\S]*?"testResults"[\s\S]*?\}\s*$/);
         if (jsonMatch) {
           testResults = JSON.parse(jsonMatch[0]);
+          console.log('✅ JSON extraído con regex avanzada');
         } else {
-          throw new Error('No se pudo parsear el resultado JSON');
+          throw new Error('No se encontró JSON de Vitest en stdout');
         }
-      } catch (parseError) {
-        console.log('⚠️  No se pudo parsear el JSON, usando valores por defecto');
-        testResults = null;
       }
-
-      // 3. Reportar resultados a TestRail
-      console.log('📊 Reportando resultados a TestRail...\n');
-
-      if (testResults && testResults.testResults && testResults.testResults.length > 0) {
-        // Analizar resultados detallados
-        const fileResults = testResults.testResults[0];
-        const assertionResults = fileResults.assertionResults || [];
-        
-        let passed = 0;
-        let failed = 0;
-        let skipped = 0;
-
-        assertionResults.forEach((test: any) => {
-          if (test.status === 'passed') passed++;
-          else if (test.status === 'failed') failed++;
-          else skipped++;
-        });
-
-        const allPassed = failed === 0 && passed > 0;
-
-        await reporter.addResult(runId, 38, {
-          case_id: 38,
-          status_id: allPassed ? 1 : 5, // 1=Passed, 5=Failed
-          comment: `Tests ejecutados automáticamente:\n- ✅ Pasaron: ${passed}\n- ❌ Fallaron: ${failed}\n- ⏭️ Saltados: ${skipped}\n\nDuración total: ${elapsed}`,
-          elapsed: elapsed,
-          version: '1.0.0'
-        });
-
-        console.log(`   ${allPassed ? '✅' : '❌'} C38 - ${passed} pasaron, ${failed} fallaron, ${skipped} saltados`);
-      } else {
-        // Fallback: reportar como exitoso si no hubo errores
-        await reporter.addResult(runId, 38, {
-          case_id: 38,
-          status_id: 1,
-          comment: 'Tests ejecutados exitosamente. 3 tests unitarios pasaron correctamente.',
-          elapsed: elapsed,
-          version: '1.0.0'
-        });
-
-        console.log('   ✅ C38 - Tests ejecutados exitosamente');
+    } catch (e) {
+      console.error('⚠️ No se pudo parsear la salida JSON de Vitest');
+      if (stdout) {
+        const lines = stdout.split('\n');
+        console.log(`Líneas de stdout: ${lines.length}`);
+        console.log('Primeras líneas:', lines.slice(0, 3).join('\n'));
+        console.log('Últimas líneas:', lines.slice(-3).join('\n'));
       }
+      if (stderr) console.error('stderr:', stderr.substring(0, 200));
+    }
 
-    } catch (testError: any) {
-      // Tests fallaron
-      console.log('   ❌ Algunos tests fallaron\n');
+    console.log('\n📊 Reportando resultados a TestRail...\n');
 
+    if (!testResults || !Array.isArray(testResults.testResults) || testResults.testResults.length === 0) {
+      console.warn('⚠️ No se encontraron resultados detallados. Reportando error genérico.');
       await reporter.addResult(runId, 38, {
         case_id: 38,
-        status_id: 5, // Failed
-        comment: `Error al ejecutar tests:\n${testError.message || testError}`,
-        elapsed: `${Math.round((Date.now() - startTime) / 1000)}s`,
+        status_id: 5,
+        comment: `Error al ejecutar tests o parsear resultados.\nExit code: ${testExitCode}\nDuración: ${elapsed}`,
+        elapsed: elapsed,
         version: '1.0.0'
       });
+    } else {
+      // Agrupar resultados por Case ID para evitar sobrescrituras
+      const resultsByCase = new Map<number, { passed: number; failed: number; skipped: number; tests: string[]; durations: number[] }>();
+
+      for (const file of testResults.testResults) {
+        const assertionResults = file.assertionResults || [];
+        for (const t of assertionResults) {
+          const fullName = t.fullName || t.title || '';
+          const caseId = extractCaseId(fullName);
+          if (!caseId) continue;
+
+          if (!resultsByCase.has(caseId)) {
+            resultsByCase.set(caseId, { passed: 0, failed: 0, skipped: 0, tests: [], durations: [] });
+          }
+          const caseData = resultsByCase.get(caseId)!;
+
+          if (t.status === 'passed') caseData.passed++;
+          else if (t.status === 'failed') caseData.failed++;
+          else caseData.skipped++;
+
+          caseData.tests.push(`${t.status.toUpperCase()}: ${fullName}`);
+          if (typeof t.duration === 'number') caseData.durations.push(t.duration);
+        }
+      }
+
+      // Reportar cada Case agregado
+      for (const [caseId, data] of resultsByCase.entries()) {
+        // Si algún test falló, marcar Case como Failed; si todos pasaron -> Passed
+        const statusId = data.failed > 0 ? 5 : (data.passed > 0 ? 1 : 3);
+        const avgDuration = data.durations.length > 0 
+          ? formatElapsedTime(data.durations.reduce((a, b) => a + b, 0) / data.durations.length)
+          : elapsed;
+
+        const comment = [
+          `Tests ejecutados: ${data.passed + data.failed + data.skipped}`,
+          `✅ Pasaron: ${data.passed}`,
+          `❌ Fallaron: ${data.failed}`,
+          `⏭️ Saltados: ${data.skipped}`,
+          '',
+          'Detalle:',
+          ...data.tests.map(t => `  - ${t}`)
+        ].join('\n');
+
+        await reporter.addResult(runId, caseId, {
+          case_id: caseId,
+          status_id: statusId,
+          comment: comment,
+          elapsed: avgDuration,
+          version: '1.0.0'
+        });
+
+        console.log(`   ${statusId === 1 ? '✅' : (statusId === 5 ? '❌' : '⏭️')} C${caseId} - ${data.passed}/${data.passed + data.failed} tests pasaron`);
+      }
     }
 
     // 4. Cerrar Test Run

@@ -125,7 +125,8 @@ export class TestRailReporter {
       );
 
       if (!response.ok) {
-        throw new Error(`TestRail API error: ${response.status} ${response.statusText}`);
+        const errorBody = await response.text();
+        throw new Error(`TestRail API error: ${response.status} ${response.statusText}\nResponse: ${errorBody}`);
       }
 
       const statusName = result.status_id === 1 ? '✅ PASSED' : '❌ FAILED';
@@ -222,12 +223,23 @@ export function extractCaseId(testName: string): number | null {
 
 /**
  * Formatea el tiempo de ejecución para TestRail
+ * TestRail acepta formatos: "30s", "1m 45s", "2h 30m" (sin decimales, sólo enteros)
  * Ejemplo: 1234 ms -> "1s"
  */
 export function formatElapsedTime(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.round((ms % 60000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  // TestRail rechaza "ms" y decimales; convertir a segundos mínimo
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }

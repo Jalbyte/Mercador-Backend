@@ -173,7 +173,7 @@ const Product = z.object({
   price: z.number().positive(),
   category: z.string(),
   image_url: z.string().url().optional(),
-  stock_quantity: z.number().int().min(0),
+  stock_quantity: z.number().int().positive(),
   license_type: z.string().optional(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -187,7 +187,7 @@ const CreateProductData = z.object({
   price: z.number().positive(),
   category: z.string().min(1),
   image_url: z.string().url().optional(),
-  stock_quantity: z.number().int().min(0),
+  stock_quantity: z.number().int().positive(),
   license_type: z.string().min(1)
   // allow creating product with keys
 }).extend({

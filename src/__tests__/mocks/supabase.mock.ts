@@ -14,10 +14,27 @@ export const mockSupabaseUser = {
   created_at: new Date().toISOString(),
 }
 
+// Helper para crear un JWT de prueba válido
+function createMockJWT(userId: string, email: string, expiresIn: number = 3600): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const now = Math.floor(Date.now() / 1000)
+  const payload = Buffer.from(JSON.stringify({
+    sub: userId,
+    email: email,
+    role: 'authenticated',
+    aal: 'aal1',
+    iat: now,
+    exp: now + expiresIn,
+  })).toString('base64url')
+  const signature = Buffer.from('mock-signature').toString('base64url')
+  return `${header}.${payload}.${signature}`
+}
+
 export const mockSupabaseSession = {
-  access_token: 'test-access-token',
+  access_token: createMockJWT(mockSupabaseUser.id, mockSupabaseUser.email),
   refresh_token: 'test-refresh-token',
   expires_in: 3600,
+  token_type: 'bearer',
   user: mockSupabaseUser,
 }
 
@@ -130,15 +147,21 @@ export const mockSupabaseClient = createMockSupabaseClient()
 export const resetSupabaseMocks = () => {
   vi.clearAllMocks()
   
+  // Recrear session con nuevo JWT
+  const newSession = {
+    ...mockSupabaseSession,
+    access_token: createMockJWT(mockSupabaseUser.id, mockSupabaseUser.email),
+  }
+  
   // Resetear auth.signUp
   vi.mocked(mockSupabaseClient.auth.signUp).mockResolvedValue({
-    data: { user: mockSupabaseUser, session: mockSupabaseSession },
+    data: { user: mockSupabaseUser, session: newSession },
     error: null,
   })
   
   // Resetear auth.signInWithPassword
   vi.mocked(mockSupabaseClient.auth.signInWithPassword).mockResolvedValue({
-    data: { user: mockSupabaseUser, session: mockSupabaseSession },
+    data: { user: mockSupabaseUser, session: newSession },
     error: null,
   })
   
