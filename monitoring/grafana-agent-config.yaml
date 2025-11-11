@@ -34,8 +34,8 @@ metrics:
           scrape_timeout: 10s
           metrics_path: '/metrics'
           static_configs:
-            # Si el agent está en el mismo contenedor/servidor que tu backend
-            - targets: ['localhost:3010']
+            # En Docker Compose, usa el nombre del servicio como hostname
+            - targets: ['hono-backend:3010']
               labels:
                 environment: 'production'
                 service: 'backend'
