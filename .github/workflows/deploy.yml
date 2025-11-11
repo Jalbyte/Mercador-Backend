@@ -35,6 +35,16 @@ jobs:
             set -e
             export GITHUB_TOKEN='${{ secrets.GHA_PAT }}'
             
+            # Check if Docker is installed
+            if ! command -v docker &> /dev/null; then
+              echo "Docker not found. Installing..."
+              sudo dnf install docker -y
+              sudo systemctl start docker
+              sudo systemctl enable docker
+              sudo usermod -a -G docker ec2-user
+              echo "Docker installed"
+            fi
+            
             echo "Starting deployment..."
             cd /home/ec2-user/mercador
             
