@@ -291,4 +291,531 @@ adminStatsRoutes.openapi(
   }
 )
 
+// GET /admin/stats/overview - Estadísticas generales completas
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/overview',
+    security: [{ Bearer: [] }],
+    responses: {
+      200: {
+        description: 'Estadísticas generales completas',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.object({
+                totalRevenue: z.number(),
+                totalOrders: z.number(),
+                totalUsers: z.number(),
+                totalProducts: z.number(),
+                avgOrderValue: z.number(),
+                conversionRate: z.number(),
+                revenueGrowth: z.number(),
+                ordersGrowth: z.number()
+              })
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Estadísticas generales del negocio'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const stats = await adminService.getOverviewStats(adminId, token)
+      return c.json({ success: true, data: stats }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/sales - Ventas por período
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/sales',
+    security: [{ Bearer: [] }],
+    request: {
+      query: z.object({
+        period: z.enum(['7d', '30d', '90d']).optional().default('30d')
+      })
+    },
+    responses: {
+      200: {
+        description: 'Ventas por período',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.object({
+                period: z.string(),
+                sales: z.array(z.object({
+                  date: z.string(),
+                  revenue: z.number(),
+                  orders: z.number()
+                })),
+                totalRevenue: z.number(),
+                totalOrders: z.number()
+              })
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Ventas por período de tiempo'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    const { period } = c.req.valid('query')
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const salesData = await adminService.getSalesByPeriod(adminId, period, token)
+      return c.json({ success: true, data: salesData }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/top-products - Top productos más vendidos
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/top-products',
+    security: [{ Bearer: [] }],
+    request: {
+      query: z.object({
+        limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 10)
+      })
+    },
+    responses: {
+      200: {
+        description: 'Top productos más vendidos',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.array(z.object({
+                id: z.number(),
+                name: z.string(),
+                image_url: z.string().nullable(),
+                total_sold: z.number(),
+                revenue: z.number(),
+                stock_quantity: z.number()
+              }))
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Top productos más vendidos'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    const { limit } = c.req.query()
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const products = await adminService.getTopProducts(adminId, limit ? parseInt(limit, 10) : 10, token)
+      return c.json({ success: true, data: products }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/low-stock - Productos con bajo stock
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/low-stock',
+    security: [{ Bearer: [] }],
+    request: {
+      query: z.object({
+        threshold: z.string().optional().transform(val => val ? parseInt(val, 10) : 10)
+      })
+    },
+    responses: {
+      200: {
+        description: 'Productos con bajo stock',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.array(z.object({
+                id: z.number(),
+                name: z.string(),
+                stock_quantity: z.number(),
+                status: z.string(),
+                image_url: z.string().nullable()
+              }))
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Productos con bajo stock'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    const { threshold } = c.req.query()
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const products = await adminService.getLowStockProducts(adminId, threshold ? parseInt(threshold, 10) : 10, token)
+      return c.json({ success: true, data: products }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/recent-users - Usuarios recientes
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/recent-users',
+    security: [{ Bearer: [] }],
+    request: {
+      query: z.object({
+        limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 10)
+      })
+    },
+    responses: {
+      200: {
+        description: 'Usuarios recientes',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.array(z.object({
+                id: z.string(),
+                email: z.string(),
+                full_name: z.string().nullable(),
+                country: z.string().nullable(),
+                created_at: z.string(),
+                role: z.string()
+              }))
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Usuarios registrados recientemente'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    const { limit } = c.req.query()
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const users = await adminService.getRecentUsers(adminId, limit ? parseInt(limit, 10) : 10, token)
+      return c.json({ success: true, data: users }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/orders/recent - Órdenes recientes
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/orders/recent',
+    security: [{ Bearer: [] }],
+    request: {
+      query: z.object({
+        limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 10)
+      })
+    },
+    responses: {
+      200: {
+        description: 'Órdenes recientes',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.array(OrderSchema)
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Órdenes más recientes del sistema'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    const { limit } = c.req.query()
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const orders = await adminService.getRecentOrders(adminId, limit ? parseInt(limit, 10) : 10, token)
+      return c.json({ success: true, data: orders }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/top-categories - Categorías más vendidas
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/top-categories',
+    security: [{ Bearer: [] }],
+    responses: {
+      200: {
+        description: 'Categorías más vendidas',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.array(z.object({
+                category: z.string(),
+                total_sold: z.number(),
+                revenue: z.number(),
+                product_count: z.number()
+              }))
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Categorías de productos más vendidas'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const categories = await adminService.getTopCategories(adminId, token)
+      return c.json({ success: true, data: categories }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
+// GET /admin/stats/conversion - Tasa de conversión
+adminStatsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/stats/conversion',
+    security: [{ Bearer: [] }],
+    responses: {
+      200: {
+        description: 'Tasa de conversión y métricas relacionadas',
+        content: {
+          'application/json': {
+            schema: z.object({
+              success: z.boolean(),
+              data: z.object({
+                conversionRate: z.number(),
+                totalVisitors: z.number(),
+                totalPurchases: z.number(),
+                avgTimeToConvert: z.number(),
+                abandonmentRate: z.number()
+              })
+            })
+          }
+        }
+      },
+      401: {
+        description: 'No autorizado',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      },
+      500: {
+        description: 'Error del servidor',
+        content: {
+          'application/json': {
+            schema: z.object({
+              error: z.string()
+            })
+          }
+        }
+      }
+    },
+    summary: 'Tasa de conversión del sitio'
+  }),
+  async (c) => {
+    const adminId = c.get('userId')
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!adminId) return c.json({ error: 'No autorizado' }, 401)
+    
+    try {
+      const conversion = await adminService.getConversionStats(adminId, token)
+      return c.json({ success: true, data: conversion }, 200)
+    } catch (err: any) {
+      return c.json({ error: err.message }, err.message === 'No autorizado' ? 401 : 500)
+    }
+  }
+)
+
 export default adminStatsRoutes

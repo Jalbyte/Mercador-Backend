@@ -39,6 +39,7 @@ app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || ''
   const allowedOrigins = [
     'http://localhost:3000',
+    'http://localhost:5173', // Vite dev server
     'https://mercador.app',
     'https://www.mercador.app',
     'https://api.mercador.app'
@@ -55,8 +56,9 @@ app.use('*', async (c, next) => {
     c.header('Access-Control-Allow-Credentials', 'true')
   }
 
-  c.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  c.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH')
+  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-CSRF-Token')
+  c.header('Access-Control-Expose-Headers', 'Set-Cookie')
 
   if (c.req.method === 'OPTIONS') {
     return c.text('', 204 as any)

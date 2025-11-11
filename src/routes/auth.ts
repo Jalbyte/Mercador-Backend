@@ -39,10 +39,24 @@ import { logger } from '../utils/logger.js'
 
 const authRoutes = new OpenAPIHono()
 
+// Extraer el dominio del API_URL si está disponible
+// En producción con dominio propio (mercador.app), usar .mercador.app
+// En desarrollo o EC2 sin dominio personalizado, no usar Domain attribute
+function getCookieDomain(): string | undefined {
+  if (NODE_ENV !== 'production') {
+    return undefined; // En desarrollo no usar Domain
+  }
+  
+  // Si API_URL contiene mercador.app, usar .mercador.app
+  if (API_URL && API_URL.includes('mercador.app')) {
+    return '.mercador.app';
+  }
+  
+  // En cualquier otro caso (EC2, etc.), no usar Domain attribute
+  return undefined;
+}
 
-const DOMAIN = NODE_ENV === 'production'
-  ? '.mercador.app' // ← cambia por tu dominio real
-  : API_URL;
+const COOKIE_DOMAIN = getCookieDomain();
 
 // Helper: Extrae token desde Authorization header o cookie sb_access_token
 function getTokenFromRequest(c: any): string | undefined {
@@ -138,7 +152,7 @@ const createSessionCookie = (accessToken: string): string => {
     `Max-Age=${ttl}`,
     `SameSite=Lax`,
     isProduction ? 'Secure' : '',
-    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+    COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
   ].filter(Boolean)
   return cookieParts.join('; ')
 }
@@ -251,7 +265,7 @@ authRoutes.openapi(loginRoute, async (c) => {
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
     // Ensure any stale access cookie scoped to /auth is cleared (prevents duplicate sb_access_token entries)
     const clearAccessAuth = [
@@ -261,7 +275,7 @@ authRoutes.openapi(loginRoute, async (c) => {
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
 
     return c.json({
@@ -331,7 +345,7 @@ authRoutes.openapi(logoutRoute, async (c) => {
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
     `SameSite=Lax`,
-    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+    COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
   ].filter(Boolean).join('; ')
 
   // Also clear any sb_access_token that might be scoped to /auth (duplicates)
@@ -342,7 +356,7 @@ authRoutes.openapi(logoutRoute, async (c) => {
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
     `SameSite=Lax`,
-    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+    COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
   ].filter(Boolean).join('; ')
 
   // Attempt to revoke refresh token in Redis if provided by client
@@ -477,7 +491,7 @@ authRoutes.openapi(refreshRoute, async (c) => {
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
 
     // Clear any stale sb_access_token set with Path=/auth to avoid duplicates
@@ -488,7 +502,7 @@ authRoutes.openapi(refreshRoute, async (c) => {
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
 
     const csrf = issueCsrfCookie()
@@ -573,7 +587,7 @@ authRoutes.openapi(sessionRoute, async (c) => {
         `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
         isProduction ? 'Secure' : '',
         `SameSite=Lax`,
-        isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+        COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
       ].filter(Boolean).join('; ')
       cookies.push(refreshCookie)
     }
@@ -586,7 +600,7 @@ authRoutes.openapi(sessionRoute, async (c) => {
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
     cookies.push(clearAccessAuth)
 
@@ -738,7 +752,7 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       `Max-Age=${60 * 60 * 24 * (REFRESH_TOKEN_TTL_DAYS || 7)}`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
     const clearAccessAuth = [
       `sb_access_token=;`,
@@ -747,7 +761,7 @@ authRoutes.openapi(verifyMfaLoginRoute, async (c) => {
       `Max-Age=0`,
       isProduction ? 'Secure' : '',
       `SameSite=Lax`,
-      isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
 
     return c.json({

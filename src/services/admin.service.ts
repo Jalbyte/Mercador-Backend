@@ -370,3 +370,428 @@ export async function getProductsWithStats(
     }
   })
 }
+
+/**
+ * Obtiene estadísticas generales del negocio (overview completo)
+ */
+export async function getOverviewStats(adminId: string, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  // Total revenue
+  const { data: orders } = await client
+    .from('orders')
+    .select('total_amount, created_at')
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+
+  const totalRevenue = orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0
+  const totalOrders = orders?.length || 0
+
+  // Total users
+  const { count: totalUsers } = await client
+    .from('profiles')
+    .select('*', { count: 'exact', head: true })
+
+  // Total products
+  const { count: totalProducts } = await client
+    .from('products')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'active')
+
+  // Avg order value
+  const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
+
+  // Growth (comparar con mes anterior)
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  
+  const sixtyDaysAgo = new Date()
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
+
+  const { data: lastMonth } = await client
+    .from('orders')
+    .select('total_amount')
+    .gte('created_at', thirtyDaysAgo.toISOString())
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+
+  const { data: previousMonth } = await client
+    .from('orders')
+    .select('total_amount')
+    .gte('created_at', sixtyDaysAgo.toISOString())
+    .lt('created_at', thirtyDaysAgo.toISOString())
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+
+  const lastMonthRevenue = lastMonth?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0
+  const previousMonthRevenue = previousMonth?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0
+  
+  const revenueGrowth = previousMonthRevenue > 0 
+    ? ((lastMonthRevenue - previousMonthRevenue) / previousMonthRevenue) * 100 
+    : 0
+
+  const ordersGrowth = previousMonth && previousMonth.length > 0
+    ? ((lastMonth?.length || 0) - previousMonth.length) / previousMonth.length * 100
+    : 0
+
+  // Conversion rate (usuarios que han hecho al menos 1 pedido)
+  const { count: usersWithOrders } = await client
+    .from('orders')
+    .select('user_id', { count: 'exact', head: true })
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+
+  const conversionRate = totalUsers && totalUsers > 0 ? ((usersWithOrders || 0) / totalUsers) * 100 : 0
+
+  return {
+    totalRevenue: Math.round(totalRevenue),
+    totalOrders,
+    totalUsers: totalUsers || 0,
+    totalProducts: totalProducts || 0,
+    avgOrderValue: Math.round(avgOrderValue),
+    conversionRate: Math.round(conversionRate * 100) / 100,
+    revenueGrowth: Math.round(revenueGrowth * 100) / 100,
+    ordersGrowth: Math.round(ordersGrowth * 100) / 100
+  }
+}
+
+/**
+ * Obtiene ventas por período (7d, 30d, 90d)
+ */
+export async function getSalesByPeriod(adminId: string, period: '7d' | '30d' | '90d', accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+
+  const { data: orders } = await client
+    .from('orders')
+    .select('total_amount, created_at')
+    .gte('created_at', startDate.toISOString())
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+    .order('created_at', { ascending: true })
+
+  // Agrupar por día
+  const salesByDate: Record<string, { revenue: number; orders: number }> = {}
+
+  orders?.forEach(order => {
+    const date = order.created_at.split('T')[0]
+    if (!salesByDate[date]) {
+      salesByDate[date] = { revenue: 0, orders: 0 }
+    }
+    salesByDate[date].revenue += order.total_amount || 0
+    salesByDate[date].orders += 1
+  })
+
+  const sales = Object.entries(salesByDate).map(([date, data]) => ({
+    date,
+    revenue: Math.round(data.revenue),
+    orders: data.orders
+  }))
+
+  const totalRevenue = sales.reduce((sum, s) => sum + s.revenue, 0)
+  const totalOrders = sales.reduce((sum, s) => sum + s.orders, 0)
+
+  return {
+    period,
+    sales,
+    totalRevenue,
+    totalOrders
+  }
+}
+
+/**
+ * Obtiene los productos más vendidos
+ */
+export async function getTopProducts(adminId: string, limit: number = 10, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const { data: orderItems } = await client
+    .from('order_items')
+    .select('product_id, quantity, price, products(id, name, image_url, stock_quantity)')
+
+  // Agrupar por producto
+  const productSales: Record<number, { 
+    id: number
+    name: string
+    image_url: string | null
+    total_sold: number
+    revenue: number
+    stock_quantity: number
+  }> = {}
+
+  orderItems?.forEach((item: any) => {
+    const product = item.products
+    if (!product) return
+
+    if (!productSales[product.id]) {
+      productSales[product.id] = {
+        id: product.id,
+        name: product.name,
+        image_url: product.image_url,
+        total_sold: 0,
+        revenue: 0,
+        stock_quantity: product.stock_quantity
+      }
+    }
+
+    productSales[product.id].total_sold += item.quantity || 0
+    productSales[product.id].revenue += (item.price || 0) * (item.quantity || 0)
+  })
+
+  return Object.values(productSales)
+    .sort((a, b) => b.total_sold - a.total_sold)
+    .slice(0, limit)
+    .map(p => ({
+      ...p,
+      revenue: Math.round(p.revenue)
+    }))
+}
+
+/**
+ * Obtiene productos con bajo stock
+ */
+export async function getLowStockProducts(adminId: string, threshold: number = 10, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const { data: products } = await client
+    .from('products')
+    .select('id, name, stock_quantity, status, image_url')
+    .lte('stock_quantity', threshold)
+    .eq('status', 'active')
+    .order('stock_quantity', { ascending: true })
+
+  return products || []
+}
+
+/**
+ * Obtiene usuarios registrados recientemente
+ */
+export async function getRecentUsers(adminId: string, limit: number = 10, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const { data: users } = await client
+    .from('profiles')
+    .select('id, email, full_name, country, created_at, role')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  return users || []
+}
+
+/**
+ * Obtiene las órdenes más recientes
+ */
+export async function getRecentOrders(adminId: string, limit: number = 10, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const { data: orders } = await client
+    .from('orders')
+    .select(`
+      id,
+      user_id,
+      status,
+      total_amount,
+      shipping_address,
+      payment_method,
+      created_at,
+      updated_at,
+      order_items(
+        id,
+        order_id,
+        product_id,
+        quantity,
+        price,
+        products(id, name, image_url)
+      )
+    `)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  return orders || []
+}
+
+/**
+ * Obtiene las categorías más vendidas
+ */
+export async function getTopCategories(adminId: string, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  const { data: orderItems } = await client
+    .from('order_items')
+    .select('quantity, price, products(category)')
+
+  // Agrupar por categoría
+  const categoryStats: Record<string, { 
+    total_sold: number
+    revenue: number
+    product_count: Set<number>
+  }> = {}
+
+  orderItems?.forEach((item: any) => {
+    const category = item.products?.category || 'Sin categoría'
+    
+    if (!categoryStats[category]) {
+      categoryStats[category] = {
+        total_sold: 0,
+        revenue: 0,
+        product_count: new Set()
+      }
+    }
+
+    categoryStats[category].total_sold += item.quantity || 0
+    categoryStats[category].revenue += (item.price || 0) * (item.quantity || 0)
+  })
+
+  return Object.entries(categoryStats)
+    .map(([category, stats]) => ({
+      category,
+      total_sold: stats.total_sold,
+      revenue: Math.round(stats.revenue),
+      product_count: stats.product_count.size
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+}
+
+/**
+ * Obtiene estadísticas de conversión
+ */
+export async function getConversionStats(adminId: string, accessToken?: string) {
+  const userClient = accessToken ? createSupabaseClient(accessToken) : (supabaseAdmin || supabase)
+  
+  const { data: adminProfile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', adminId)
+    .single()
+
+  if (!adminProfile || adminProfile.role !== 'admin') {
+    throw new Error('No autorizado')
+  }
+
+  const client = supabaseAdmin || supabase
+
+  // Total de usuarios registrados
+  const { count: totalVisitors } = await client
+    .from('profiles')
+    .select('*', { count: 'exact', head: true })
+
+  // Usuarios que han comprado
+  const { data: purchasers } = await client
+    .from('orders')
+    .select('user_id')
+    .in('status', ['confirmed', 'shipped', 'delivered'])
+
+  const uniquePurchasers = new Set(purchasers?.map(p => p.user_id))
+  const totalPurchases = uniquePurchasers.size
+
+  // Conversion rate
+  const conversionRate = totalVisitors && totalVisitors > 0 
+    ? (totalPurchases / totalVisitors) * 100 
+    : 0
+
+  // Carritos abandonados (carts con items pero sin orden)
+  const { data: carts } = await client
+    .from('carts')
+    .select('id, user_id')
+
+  const { data: orders } = await client
+    .from('orders')
+    .select('user_id')
+
+  const usersWithOrders = new Set(orders?.map(o => o.user_id))
+  const abandonedCarts = carts?.filter(c => !usersWithOrders.has(c.user_id)).length || 0
+
+  const abandonmentRate = carts && carts.length > 0
+    ? (abandonedCarts / carts.length) * 100
+    : 0
+
+  return {
+    conversionRate: Math.round(conversionRate * 100) / 100,
+    totalVisitors: totalVisitors || 0,
+    totalPurchases,
+    avgTimeToConvert: 0, // Requeriría tracking de sesiones
+    abandonmentRate: Math.round(abandonmentRate * 100) / 100
+  }
+}
