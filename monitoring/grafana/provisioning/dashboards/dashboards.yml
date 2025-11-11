@@ -1,0 +1,16 @@
+# Configuración de provisioning de dashboards
+# Este archivo le indica a Grafana dónde encontrar los dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'Mercador Dashboards'
+    orgId: 1
+    folder: 'Mercador'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

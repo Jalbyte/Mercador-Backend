@@ -1,0 +1,57 @@
+# Configuración de Grafana Agent para enviar métricas a Grafana Cloud
+# Este archivo configura el agent para scrapear tu aplicación y enviar a Grafana Cloud
+
+server:
+  log_level: info
+
+# Configuración de métricas
+metrics:
+  # Configuración global
+  global:
+    scrape_interval: 15s
+    remote_write:
+      - url: ${GRAFANA_PROMETHEUS_URL}
+        basic_auth:
+          username: ${GRAFANA_PROMETHEUS_USERNAME}
+          password: ${GRAFANA_PROMETHEUS_PASSWORD}
+        # Configuración para manejar reintentos
+        queue_config:
+          capacity: 10000
+          max_shards: 10
+          min_shards: 1
+          max_samples_per_send: 5000
+          batch_send_deadline: 5s
+          min_backoff: 30ms
+          max_backoff: 100ms
+
+  # Configuración de scraping
+  configs:
+    - name: mercador-backend
+      scrape_configs:
+        # Scrapea tu backend
+        - job_name: 'mercador-backend-production'
+          scrape_interval: 15s
+          scrape_timeout: 10s
+          metrics_path: '/metrics'
+          static_configs:
+            # Si el agent está en el mismo contenedor/servidor que tu backend
+            - targets: ['localhost:3010']
+              labels:
+                environment: 'production'
+                service: 'backend'
+                app: 'mercador'
+                instance: 'prod-1'
+            
+            # Si tu backend está en otro lugar, usa la URL completa:
+            # - targets: ['tu-backend.railway.app']
+            #   labels:
+            #     environment: 'production'
+            #     service: 'backend'
+
+        # Métricas del agent mismo
+        - job_name: 'grafana-agent'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:12345']
+              labels:
+                service: 'grafana-agent'

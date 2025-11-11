@@ -1,0 +1,65 @@
+# docker-compose.production.yml
+# Configuración para desplegar en producción con Grafana Agent
+
+version: '3.8'
+
+services:
+  # Tu backend de producción
+  hono-backend:
+    build: .
+    container_name: hono-backend-prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3010:3010"
+    networks:
+      - mercador-network
+
+  # Grafana Agent para enviar métricas a Grafana Cloud
+  grafana-agent:
+    image: grafana/agent:latest
+    container_name: grafana-agent-prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - GRAFANA_PROMETHEUS_URL=${GRAFANA_PROMETHEUS_URL}
+      - GRAFANA_PROMETHEUS_USERNAME=${GRAFANA_PROMETHEUS_USERNAME}
+      - GRAFANA_PROMETHEUS_PASSWORD=${GRAFANA_PROMETHEUS_PASSWORD}
+    volumes:
+      - ./monitoring/grafana-agent-config.yaml:/etc/agent-config/agent.yaml
+    command:
+      - -config.file=/etc/agent-config/agent.yaml
+      - -metrics.wal-directory=/tmp/agent/wal
+      - -server.http.address=0.0.0.0:12345
+      - -config.expand-env=true
+    ports:
+      - "12345:12345"
+    networks:
+      - mercador-network
+    depends_on:
+      - hono-backend
+
+  # Redis (si lo usas)
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    networks:
+      - mercador-network
+
+networks:
+  mercador-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local

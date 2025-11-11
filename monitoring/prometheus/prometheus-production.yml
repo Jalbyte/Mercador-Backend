@@ -1,0 +1,59 @@
+# Configuración de Prometheus para Mercador Backend en PRODUCCIÓN
+# Este archivo apunta al backend desplegado en un servidor externo
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'mercador-monitor'
+    environment: 'production'
+
+# Configuración de scraping para PRODUCCIÓN
+scrape_configs:
+  # Scrape del backend en producción
+  - job_name: 'mercador-backend-production'
+    scrape_interval: 30s # Más espaciado para no sobrecargar
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    scheme: 'https' # Usa HTTPS en producción
+    static_configs:
+      - targets: 
+        # Reemplaza con tu URL de producción (sin https://)
+        - 'tu-backend-produccion.com'
+        # Ejemplos:
+        # - 'mercador-backend.railway.app'
+        # - 'mercador-api.onrender.com'
+        # - 'api.mercador.com'
+        labels:
+          service: 'backend'
+          app: 'mercador'
+          tier: 'api'
+          environment: 'production'
+
+  # Si tienes múltiples instancias/regiones
+  # - job_name: 'mercador-backend-us-east'
+  #   scrape_interval: 30s
+  #   metrics_path: '/metrics'
+  #   scheme: 'https'
+  #   static_configs:
+  #     - targets: ['us-east.mercador-api.com']
+  #       labels:
+  #         region: 'us-east'
+
+  # - job_name: 'mercador-backend-eu-west'
+  #   scrape_interval: 30s
+  #   metrics_path: '/metrics'
+  #   scheme: 'https'
+  #   static_configs:
+  #     - targets: ['eu-west.mercador-api.com']
+  #       labels:
+  #         region: 'eu-west'
+
+  # Self-monitoring de Prometheus
+  - job_name: 'prometheus'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          app: 'monitoring'
