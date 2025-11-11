@@ -9,9 +9,9 @@
  * 
  * Tests incluidos:
  * - Autenticación: C38, C41, C42, C44, C58, C62 (30 tests)
- * - Productos: C75, C80, C81 (21 tests)
+ * - Productos: C66, C68, C70, C71, C75, C80, C81 (58 tests)
  * - Carrito: C113, C114, C116, C117, C129, C137 (60 tests)
- * Total: 111 tests
+ * Total: 148 tests
  * 
  * Ejecutar: npx tsx src/__tests__/helpers/examples/run-and-report.ts
  */
@@ -44,7 +44,7 @@ async function runTestsAndReport() {
     runId = await reporter.createTestRun(
       `Automated Test Run - ${new Date().toLocaleString('es-CO')}`,
       'Tests automatizados de autenticación, productos y carrito de compras',
-      [38, 41, 42, 44, 58, 62, 75, 80, 81, 113, 114, 116, 117, 129, 137]
+      [38, 41, 42, 44, 58, 62, 66, 68, 70, 71, 75, 80, 81, 113, 114, 116, 117, 129, 137]
     );
 
     if (runId === 0) {
@@ -65,7 +65,7 @@ async function runTestsAndReport() {
     try {
       // Ejecutar tests específicos (evita glob que puede fallar)
       const result = await execAsync(
-        'npx vitest run src/__tests__/auth/register.test.ts src/__tests__/auth/login.test.ts src/__tests__/auth/login-mfa.test.ts src/__tests__/auth/token-validation.test.ts src/__tests__/auth/login-failed.test.ts src/__tests__/auth/logout.test.ts src/__tests__/products/create-product.test.ts src/__tests__/products/create-product-invalid-price.test.ts src/__tests__/products/create-product-invalid-stock.test.ts src/__tests__/cart/update-quantity.test.ts src/__tests__/cart/add-to-cart.test.ts src/__tests__/cart/validate-quantity-equal-stock.test.ts src/__tests__/cart/validate-total-price.test.ts src/__tests__/cart/admin-update-product-cart.test.ts src/__tests__/cart/validate-total-price-multiple.test.ts --reporter=json',
+        'npx vitest run src/__tests__/auth/register.test.ts src/__tests__/auth/login.test.ts src/__tests__/auth/login-mfa.test.ts src/__tests__/auth/token-validation.test.ts src/__tests__/auth/login-failed.test.ts src/__tests__/auth/logout.test.ts src/__tests__/products/create-product.test.ts src/__tests__/products/create-product-invalid-price.test.ts src/__tests__/products/create-product-invalid-stock.test.ts src/__tests__/products/update-stock-purchase.test.ts src/__tests__/products/validate-negative-stock.test.ts src/__tests__/products/out-of-stock-status.test.ts src/__tests__/products/low-stock-alert.test.ts src/__tests__/cart/update-quantity.test.ts src/__tests__/cart/add-to-cart.test.ts src/__tests__/cart/validate-quantity-equal-stock.test.ts src/__tests__/cart/validate-total-price.test.ts src/__tests__/cart/admin-update-product-cart.test.ts src/__tests__/cart/validate-total-price-multiple.test.ts --reporter=json',
         { maxBuffer: 20 * 1024 * 1024 }
       );
       stdout = result.stdout;
