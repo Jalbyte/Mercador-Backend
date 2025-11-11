@@ -28,7 +28,32 @@ jobs:
           echo "${{ secrets.ENV_FILE }}" > .env
           scp -i ~/.ssh/id_rsa .env \
             ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/mercador/.env
-      - name: Run deployment script on EC2
+
+      - name: Deploy with Docker Compose Production
         run: |
-          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "export GITHUB_TOKEN='${{ secrets.GHA_PAT }}' && bash /home/ec2-user/deploy.sh"
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+            set -e
+            export GITHUB_TOKEN='${{ secrets.GHA_PAT }}'
+            
+            echo "Starting deployment..."
+            cd /home/ec2-user/mercador
+            
+            # Pull latest code
+            echo "Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/deploy
+            
+            # Stop existing containers
+            echo "Stopping containers..."
+            docker compose -f docker-compose.production.yml down || true
+            
+            # Start with production config (includes Grafana Agent)
+            echo "Starting services..."
+            docker compose -f docker-compose.production.yml up -d --build
+            
+            # Show status
+            echo "Deployment complete!"
+            docker compose -f docker-compose.production.yml ps
+            
+            echo "Grafana Agent is now sending metrics to Grafana Cloud"
+          ENDSSH
