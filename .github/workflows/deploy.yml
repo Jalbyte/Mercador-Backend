@@ -68,6 +68,14 @@ jobs:
             echo "Stopping containers..."
             docker compose -f docker-compose.production.yml down || true
             
+            # Kill any old process using port 3010
+            echo "Checking for old processes on port 3010..."
+            if sudo lsof -ti:3010 > /dev/null 2>&1; then
+              echo "Killing old process on port 3010..."
+              sudo kill -9 $(sudo lsof -ti:3010) || true
+              sleep 2
+            fi
+            
             # Start with production config (includes Grafana Agent)
             echo "Starting services..."
             docker compose -f docker-compose.production.yml up -d --build
