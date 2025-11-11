@@ -45,6 +45,17 @@ jobs:
               echo "Docker installed"
             fi
             
+            # Check if Docker Compose plugin is installed
+            if ! docker compose version &> /dev/null; then
+              echo "Docker Compose plugin not found. Installing..."
+              sudo mkdir -p /usr/local/lib/docker/cli-plugins
+              sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 \
+                -o /usr/local/lib/docker/cli-plugins/docker-compose
+              sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+              echo "Docker Compose plugin installed"
+              docker compose version
+            fi
+            
             echo "Starting deployment..."
             cd /home/ec2-user/mercador
             
