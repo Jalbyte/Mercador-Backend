@@ -57,7 +57,7 @@ describe('[C137] Validar precio total - Agregando x cantidad', () => {
     product_id: number;
     product: typeof mockProduct1 | typeof mockProduct2;
   }>) {
-    mockSupabaseClient.from.mockImplementation((table: string) => {
+    mockSupabaseClient.from = vi.fn((table: string) => {
       if (table === 'carts') {
         return {
           select: vi.fn().mockReturnValue({
@@ -113,7 +113,7 @@ describe('[C137] Validar precio total - Agregando x cantidad', () => {
     const existingItem = existingItems.find(item => item.product_id === productId);
     const newQuantity = existingItem ? existingItem.quantity + quantity : quantity;
 
-    mockSupabaseClient.from.mockImplementation((table: string) => {
+    mockSupabaseClient.from = vi.fn((table: string) => {
       if (table === 'carts') {
         return {
           select: vi.fn().mockReturnValue({
