@@ -343,7 +343,7 @@ points.get('/order/:orderId', async (c) => {
     }
 
     const orderIdParam = c.req.param('orderId')
-    const orderId = BigInt(orderIdParam)
+    const orderId = Number(orderIdParam)
 
     if (!orderIdParam || isNaN(Number(orderIdParam))) {
       return c.json({ error: 'orderId inválido' }, 400)

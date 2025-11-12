@@ -378,7 +378,7 @@ export class ReturnService {
                     }, '🔄 Procesando reembolso con puntos');
 
                     // Obtener información de puntos de la orden
-                    const orderPoints = await getOrderPoints(BigInt(orderId));
+                    const orderPoints = await getOrderPoints(orderId);
 
                     if (orderPoints && orderPoints.points_used > 0) {
                         logger.info({ 
@@ -405,7 +405,7 @@ export class ReturnService {
                                 refundBreakdown.pointsRefund,
                                 'refund',
                                 `Reembolso por devolución #${returnId} de orden #${orderId}`,
-                                BigInt(orderId),
+                                orderId,
                                 { 
                                     returnId, 
                                     originalPointsUsed: orderPoints.points_used,
