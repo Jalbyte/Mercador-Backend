@@ -12,7 +12,7 @@ import { WompiService } from '../services/wompi.service.js'
 import type { Context } from 'hono'
 import { WOMPI_PUBLIC_KEY } from '../config/env.js'
 import { logger } from '../utils/logger.js'
-import { authMiddleware } from '@/middlewares/authMiddleware.js'
+import { authMiddleware } from '../middlewares/authMiddleware.js'
 
 const wompiRoutes = new OpenAPIHono()
 const wompiService = new WompiService()
