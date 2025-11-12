@@ -268,21 +268,11 @@ authRoutes.openapi(loginRoute, async (c) => {
       COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
     ].filter(Boolean).join('; ')
     // Ensure any stale access cookie scoped to /auth is cleared (prevents duplicate sb_access_token entries)
-    const clearAccessAuth = [
-      `sb_access_token=;`,
-      `HttpOnly`,
-      `Path=/`,
-      `Max-Age=0`,
-      isProduction ? 'Secure' : '',
-      `SameSite=Lax`,
-      COOKIE_DOMAIN ? `Domain=${COOKIE_DOMAIN}` : ''
-    ].filter(Boolean).join('; ')
-
     return c.json({
       success: true,
       session: result.session
     }, 200, {
-      'Set-Cookie': [sessionCookie, refreshCookie, clearAccessAuth],
+      'Set-Cookie': [sessionCookie, refreshCookie],
     });
   } catch (err) {
     // Si el servicio lanzó un error indicando cuenta eliminada, devolver respuesta clara para restauración
