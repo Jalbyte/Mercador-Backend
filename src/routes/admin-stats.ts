@@ -712,7 +712,8 @@ adminStatsRoutes.openapi(
                 category: z.string(),
                 total_sold: z.number(),
                 revenue: z.number(),
-                product_count: z.number()
+                product_count: z.number(),
+                percentage: z.number()
               }))
             })
           }

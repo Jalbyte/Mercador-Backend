@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import jwt from 'jsonwebtoken'
 import '../mocks/supabase.mock.js'
 import { mockSupabaseClient, mockSupabaseSession, mockSupabaseUser } from '../mocks/supabase.mock.js'
-import * as userService from '@/services/user.service.js'
-import { redisService } from '@/services/redis.service.js'
+import * as userService from '../../services/user.service.js'
+import { redisService } from '../../services/redis.service.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
-import authRoutes from '@/routes/auth.js'
-import { cookieToAuthHeader } from '@/middlewares/cookieToAuthHeader.js'
-import { authMiddleware } from '@/middlewares/authMiddleware.js'
+import authRoutes from '../../routes/auth.js'
+import { cookieToAuthHeader } from '../../middlewares/cookieToAuthHeader.js'
+import { authMiddleware } from '../../middlewares/authMiddleware.js'
 
 /**
  * TestRail Case ID: C44

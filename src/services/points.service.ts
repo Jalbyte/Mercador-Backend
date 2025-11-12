@@ -11,6 +11,7 @@
  * @module services/points.service
  */
 
+import { PostgrestError } from '@supabase/supabase-js'
 import { supabase, supabaseAdmin } from '../config/supabase.js'
 import { logger } from '../utils/logger.js'
 
@@ -42,7 +43,7 @@ export interface PointsTransaction {
   amount: number
   type: 'earned' | 'spent' | 'refund' | 'adjustment'
   description: string
-  order_id?: bigint
+  order_id?: number
   created_at: string
   metadata?: Record<string, any>
 }
@@ -52,7 +53,7 @@ export interface PointsTransaction {
  */
 export interface OrderPoints {
   id: string
-  order_id: bigint
+  order_id: number
   user_id: string
   points_used: number
   points_earned: number
@@ -136,7 +137,7 @@ export async function addPoints(
   amount: number,
   type: 'earned' | 'refund' | 'adjustment',
   description: string,
-  orderId?: bigint,
+  orderId?: number,
   metadata?: Record<string, any>
 ): Promise<boolean> {
   try {
@@ -182,11 +183,11 @@ export async function addPoints(
       // No revertir el balance, solo loguear el error
     }
 
-    logger.info({ 
-      userId, 
-      amount, 
-      type, 
-      newBalance 
+    logger.info({
+      userId,
+      amount,
+      type,
+      newBalance
     }, 'Points added successfully')
 
     return true
@@ -203,7 +204,7 @@ export async function deductPoints(
   userId: string,
   amount: number,
   description: string,
-  orderId?: bigint,
+  orderId?: number,
   metadata?: Record<string, any>
 ): Promise<boolean> {
   try {
@@ -216,10 +217,10 @@ export async function deductPoints(
 
     // 2. Verificar que tenga suficientes puntos
     if (balance.balance < amount) {
-      logger.warn({ 
-        userId, 
-        requested: amount, 
-        available: balance.balance 
+      logger.warn({
+        userId,
+        requested: amount,
+        available: balance.balance
       }, 'Insufficient points balance')
       return false
     }
@@ -228,7 +229,7 @@ export async function deductPoints(
     const newBalance = balance.balance - amount
     const newTotalSpent = balance.total_spent + amount
 
-    const { error: updateError } = await supabaseAdmin
+    await supabaseAdmin
       .from('user_points')
       .update({
         balance: newBalance,
@@ -237,13 +238,8 @@ export async function deductPoints(
       })
       .eq('user_id', userId)
 
-    if (updateError) {
-      logger.error({ error: updateError, userId }, 'Error updating points balance')
-      return false
-    }
-
     // 4. Registrar transacción (negativo para gastos)
-    const { error: transactionError } = await supabaseAdmin
+    await supabaseAdmin
       .from('points_transactions')
       .insert({
         user_id: userId,
@@ -254,18 +250,15 @@ export async function deductPoints(
         metadata: metadata || {}
       })
 
-    if (transactionError) {
-      logger.error({ error: transactionError, userId }, 'Error recording points transaction')
-    }
-
-    logger.info({ 
-      userId, 
-      amount, 
-      newBalance 
+    logger.info({
+      userId,
+      amount,
+      newBalance
     }, 'Points deducted successfully')
 
     return true
   } catch (error) {
+    console.log(error)
     logger.error({ error, userId, amount }, 'Exception deducting points')
     return false
   }
@@ -303,7 +296,7 @@ export async function getPointsTransactions(
  * Registrar puntos usados y ganados en una orden
  */
 export async function recordOrderPoints(
-  orderId: bigint,
+  orderId: number,
   userId: string,
   pointsUsed: number,
   pointsEarned: number,
@@ -325,12 +318,12 @@ export async function recordOrderPoints(
       return false
     }
 
-    logger.info({ 
-      orderId, 
-      userId, 
-      pointsUsed, 
-      pointsEarned, 
-      discountAmount 
+    logger.info({
+      orderId,
+      userId,
+      pointsUsed,
+      pointsEarned,
+      discountAmount
     }, 'Order points recorded successfully')
 
     return true
@@ -343,7 +336,7 @@ export async function recordOrderPoints(
 /**
  * Obtener puntos asociados a una orden
  */
-export async function getOrderPoints(orderId: bigint): Promise<OrderPoints | null> {
+export async function getOrderPoints(orderId: number): Promise<OrderPoints | null> {
   try {
     const { data, error } = await supabaseAdmin
       .from('order_points')
@@ -394,34 +387,34 @@ export function calculateProportionalRefund(
   pointsUsed: number,
   refundAmount: number
 ): { moneyRefund: number; pointsRefund: number } {
-  if (pointsUsed === 0) {
-    // No se usaron puntos, reembolsar solo dinero
+  if (orderTotal <= 0) {
+    return { moneyRefund: 0, pointsRefund: 0 }
+  }
+
+  // 1. Calcular el valor en pesos del descuento por puntos y lo que se pagó con dinero
+  const pointsDiscount = pointsToPesos(pointsUsed)
+  const moneyPaid = orderTotal - pointsDiscount
+
+  // Si el pago con dinero es negativo o cero, todo se pagó con puntos
+  if (moneyPaid <= 0) {
     return {
-      moneyRefund: refundAmount,
-      pointsRefund: 0
+      moneyRefund: 0,
+      pointsRefund: pesosToPoints(refundAmount)
     }
   }
 
-  // Calcular el valor en pesos de los puntos usados (descuento aplicado)
-  const pointsDiscount = pointsUsed * POINTS_CONSTANTS.PESOS_PER_POINT;
-  
-  // Calcular lo que realmente se pagó (después del descuento de puntos)
-  const actualPaid = orderTotal - pointsDiscount;
-  
-  // Calcular el porcentaje de devolución sobre lo realmente pagado
-  const refundPercentage = refundAmount / actualPaid;
-  
-  // Calcular puntos proporcionales a reembolsar
-  // Convertimos refundAmount a puntos y aplicamos el porcentaje
-  const refundInPoints = Math.floor(refundAmount / POINTS_CONSTANTS.PESOS_PER_POINT);
-  const pointsRefund = Math.floor(refundInPoints * refundPercentage);
-  
-  // El reembolso en dinero es el total (ya que los puntos se reembolsan por separado)
-  const moneyRefund = refundAmount;
+  // 2. Calcular la proporción del pago que se hizo con dinero y con puntos
+  const moneyProportion = moneyPaid / orderTotal
+  const pointsProportion = pointsDiscount / orderTotal
+
+  // 3. Calcular el reembolso para cada parte basado en su proporción
+  const moneyRefund = Math.round(refundAmount * moneyProportion)
+  const pointsValueToRefund = refundAmount * pointsProportion
+  const pointsRefund = pesosToPoints(pointsValueToRefund)
 
   return {
     moneyRefund,
-    pointsRefund
+    pointsRefund: Math.round(pointsRefund)
   }
 }
 

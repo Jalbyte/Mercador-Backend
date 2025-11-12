@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import '../mocks/supabase.mock.js'
 import { mockSupabaseClient, mockSupabaseUser, resetSupabaseMocks } from '../mocks/supabase.mock.js'
-import * as userService from '@/services/user.service.js'
+import * as userService from '../../services/user.service.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
-import authRoutes from '@/routes/auth.js'
+import authRoutes from '../../routes/auth.js'
 
 /**
  * TestRail Case ID: C58

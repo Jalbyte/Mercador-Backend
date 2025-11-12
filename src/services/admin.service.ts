@@ -42,6 +42,11 @@ export interface DashboardStats {
 export interface OrderWithItems {
   id: number
   user_id: string
+  user?: {
+    id: string
+    full_name?: string
+    email?: string
+  }
   status: string
   total_amount: number
   shipping_address: any
@@ -247,6 +252,7 @@ export async function getAllOrdersAdmin(
     .from('orders')
     .select(`
       *,
+      user:profiles (id, full_name, email),
       order_items (
         *,
         product:products (
@@ -707,6 +713,7 @@ export async function getTopCategories(adminId: string, accessToken?: string) {
     total_sold: number
     revenue: number
     product_count: Set<number>
+    percentage: number
   }> = {}
 
   orderItems?.forEach((item: any) => {
@@ -716,21 +723,35 @@ export async function getTopCategories(adminId: string, accessToken?: string) {
       categoryStats[category] = {
         total_sold: 0,
         revenue: 0,
-        product_count: new Set()
+        product_count: new Set(),
+        percentage: 0
       }
     }
 
     categoryStats[category].total_sold += item.quantity || 0
     categoryStats[category].revenue += (item.price || 0) * (item.quantity || 0)
+    // Añadir product_id al conjunto para contabilizar productos distintos por categoría
+    if (item.product_id) {
+      categoryStats[category].product_count.add(item.product_id)
+    }
+    
   })
 
+  // Calcular porcentaje de revenue por categoría
+  const totalRevenueAcross = Object.values(categoryStats).reduce((s, st) => s + (st.revenue || 0), 0)
+
   return Object.entries(categoryStats)
-    .map(([category, stats]) => ({
-      category,
-      total_sold: stats.total_sold,
-      revenue: Math.round(stats.revenue),
-      product_count: stats.product_count.size
-    }))
+    .map(([category, stats]) => {
+      const roundedRevenue = Math.round(stats.revenue)
+      const percentage = totalRevenueAcross > 0 ? Math.round((stats.revenue / totalRevenueAcross) * 10000) / 100 : 0
+      return {
+        category,
+        total_sold: stats.total_sold,
+        revenue: roundedRevenue,
+        product_count: stats.product_count.size,
+        percentage
+      }
+    })
     .sort((a, b) => b.revenue - a.revenue)
 }
 

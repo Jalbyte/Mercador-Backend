@@ -332,7 +332,7 @@ export async function getAllOrders(filters: { status?: string; page?: number; li
  * (útil para webhooks sin autenticación de usuario)
  */
 export async function updateOrderStatusWithPayment(
-  orderId: string,
+  orderId: number,
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled',
   paymentId?: string,
   accessToken?: string,
@@ -378,7 +378,7 @@ export async function updateOrderStatusWithPayment(
  * Obtiene el user_id de una orden
  * Usa cliente admin porque es llamada desde webhooks
  */
-export async function getOrderUserId(orderId: string): Promise<string | null> {
+export async function getOrderUserId(orderId: number): Promise<string | null> {
   const client = supabaseAdmin || supabase;
   
   const { data: order, error } = await client
@@ -537,7 +537,7 @@ export async function calculateOrderAccuracy(): Promise<{
  * Útil para llevar tracking de problemas y calcular métricas
  */
 export async function logOrderError(
-  orderId: string,
+  orderId: number,
   errorType: OrderError['error_type'],
   errorMessage: string
 ): Promise<void> {

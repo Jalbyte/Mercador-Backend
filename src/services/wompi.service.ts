@@ -337,7 +337,7 @@ export class WompiService {
       return { success: false, message: 'Invalid reference format' }
     }
 
-    const orderId = reference.replace('ORDER-', '')
+    const orderId = Number(reference.replace('ORDER-', ''))
     logger.info({ orderId }, '🔗 Conectando webhook con orden')
 
     try {
@@ -345,12 +345,12 @@ export class WompiService {
       const { updateOrderStatusWithPayment, getOrderById, getOrderUserId } = await import('./order.service.js')
       const { sendOrderEmail } = await import('./mail.service.js')
       const { assignKeysToUser } = await import('./product_key.service.js')
-      const { 
-        calculateEarnedPoints, 
-        addPoints, 
-        deductPoints, 
-        recordOrderPoints, 
-        pointsToPesos 
+      const {
+        calculateEarnedPoints,
+        addPoints,
+        deductPoints,
+        recordOrderPoints,
+        pointsToPesos
       } = await import('./points.service.js')
 
       // Aquí implementa tu lógica de negocio según el estado de la transacción
@@ -358,7 +358,7 @@ export class WompiService {
         case 'APPROVED':
           logger.info({ orderId }, '✅ Pago aprobado para orden')
           await updateOrderStatusWithPayment(orderId, 'confirmed', transaction.id)
-          
+
           // Intentar asignar claves y enviar email con factura y claves
           try {
             const userId = await getOrderUserId(orderId)
@@ -368,6 +368,20 @@ export class WompiService {
               logger.warn({ orderId }, '⚠️ No se encontró la orden')
               break
             }
+
+            // Validar que el monto de la transacción coincida con el total de la orden
+            const orderTotalInCents = Math.round(order.total_amount * 100)
+            if (orderTotalInCents !== transaction.amount_in_cents) {
+              logger.error({
+                orderId,
+                orderTotal: order.total_amount,
+                orderTotalInCents,
+                transactionAmount: transaction.amount_in_cents
+              }, '❌ Discrepancia de monto entre la orden y la transacción de Wompi')
+              // Opcional: se podría cambiar el estado a 'requires_review' o similar
+              return { success: false, message: 'Amount mismatch between order and transaction' }
+            }
+
             logger.info({ order }, 'Orden obtenida')
 
             // ==========================================
@@ -381,7 +395,7 @@ export class WompiService {
               try {
                 // 1. Obtener puntos usados desde la tabla order_points (pre-guardados antes del pago)
                 const { getOrderPoints } = await import('./points.service.js')
-                const orderPoints = await getOrderPoints(BigInt(orderId))
+                const orderPoints = await getOrderPoints(orderId)
                 const pointsToUse = orderPoints?.points_used || 0
 
                 logger.info({ userId, pointsToUse, orderId, foundInOrderPoints: !!orderPoints }, '💎 Procesando puntos para orden')
@@ -392,7 +406,7 @@ export class WompiService {
                     userId,
                     pointsToUse,
                     `Usado en orden #${orderId}`,
-                    BigInt(orderId),
+                    orderId,
                     { transactionId: transaction.id, reference: transaction.reference }
                   )
 
@@ -417,7 +431,7 @@ export class WompiService {
                     pointsEarned,
                     'earned',
                     `Ganado por compra de orden #${orderId}`,
-                    BigInt(orderId),
+                    orderId,
                     { transactionId: transaction.id, reference: transaction.reference, paidAmount }
                   )
 
@@ -431,7 +445,7 @@ export class WompiService {
                 // 5. Actualizar order_points con los puntos ganados (el registro ya existe del pre-use)
                 if (pointsUsed > 0 || pointsEarned > 0) {
                   const { supabaseAdmin } = await import('../config/supabase.js')
-                  
+
                   // Actualizar el registro existente con los puntos ganados
                   const { error: updateError } = await supabaseAdmin
                     .from('order_points')
@@ -464,10 +478,10 @@ export class WompiService {
             // SISTEMA DE PUNTOS - FIN
             // ==========================================
 
-            const assignedKeysDetails: Array<{ 
+            const assignedKeysDetails: Array<{
               productId: string
               productName: string
-              keys: Array<{ id: string, license_key: string }> 
+              keys: Array<{ id: string, license_key: string }>
             }> = []
             let totalKeysCount = 0
 
@@ -548,7 +562,7 @@ export class WompiService {
 
                 // Construir URL de la factura
                 const invoiceUrl = new URL(`${FRONTEND_URL || 'http://localhost:3000'}/email/invoice`)
-                invoiceUrl.searchParams.set('orderId', orderId)
+                invoiceUrl.searchParams.set('orderId', String(orderId))
                 invoiceUrl.searchParams.set('reference', reference)
                 invoiceUrl.searchParams.set('customerName', transaction.customer_data?.legal_id || transaction.customer_email)
                 invoiceUrl.searchParams.set('customerEmail', transaction.customer_email)
@@ -570,6 +584,7 @@ export class WompiService {
 
             // 3. Enviar email con mensaje simple + adjuntos
             const emailTemplateUrl = `${FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+
             await sendOrderEmail({
               to: transaction.customer_email,
               subject: `✅ Orden ${reference} - Pago Confirmado`,
@@ -578,7 +593,7 @@ export class WompiService {
                 reference,
                 status: 'confirmed',
                 keysCount: totalKeysCount.toString(),
-                orderId,
+                orderId: String(orderId),
                 customerName: transaction.customer_data?.full_name || transaction.customer_email.split('@')[0],
                 pointsUsed: pointsUsed.toString(),
                 pointsEarned: pointsEarned.toString(),

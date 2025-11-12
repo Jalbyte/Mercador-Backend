@@ -6,8 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import '../mocks/supabase.mock.js'
 import '../mocks/redis.mock.js'
 import { Hono } from 'hono'
-import wompiRoutes from '@/routes/wompi.js'
-import { logger } from '@/utils/logger.js'
+import wompiRoutes from '../../routes/wompi.js'
+import { logger } from '../../utils/logger.js'
 
 const app = new Hono()
 app.route('/wompi', wompiRoutes)

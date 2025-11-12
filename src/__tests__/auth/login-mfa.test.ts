@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import '../mocks/supabase.mock.js'
 import { mockSupabaseClient, mockSupabaseSession, mockSupabaseUser } from '../mocks/supabase.mock.js'
-import * as userService from '@/services/user.service.js'
-import { redisService } from '@/services/redis.service.js'
+import * as userService from '../../services/user.service.js'
+import { redisService } from '../../services/redis.service.js'
 
 /**
  * TestRail Case ID: C42

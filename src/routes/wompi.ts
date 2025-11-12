@@ -12,6 +12,7 @@ import { WompiService } from '../services/wompi.service.js'
 import type { Context } from 'hono'
 import { WOMPI_PUBLIC_KEY } from '../config/env.js'
 import { logger } from '../utils/logger.js'
+import { authMiddleware } from '@/middlewares/authMiddleware.js'
 
 const wompiRoutes = new OpenAPIHono()
 const wompiService = new WompiService()
@@ -160,7 +161,7 @@ const generateSignatureRoute = createRoute({
 wompiRoutes.openapi(generateSignatureRoute, async (c: Context) => {
   try {
     const body = await c.req.json()
-  logger.debug({ body }, 'Request body')
+    logger.debug({ body }, 'Request body')
     const { amount, currency, reference } = body
 
     if (!amount || !currency || !reference) {
@@ -189,8 +190,8 @@ wompiRoutes.openapi(generateSignatureRoute, async (c: Context) => {
       currency,
     }, 200)
   } catch (error: any) {
-  logger.error({ err: error }, 'Error generando firma Wompi')
-    
+    logger.error({ err: error }, 'Error generando firma Wompi')
+
     return c.json(
       {
         success: false,
@@ -283,7 +284,7 @@ wompiRoutes.openapi(getStatusRoute, async (c: Context) => {
       data: result.data,
     }, 200)
   } catch (error: any) {
-  logger.error({ err: error }, 'Error consultando transacción Wompi')
+    logger.error({ err: error }, 'Error consultando transacción Wompi')
     return c.json(
       {
         success: false,
@@ -344,7 +345,7 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
     const body = await c.req.json()
     // Wompi envía la firma en el header X-Event-Checksum
     const receivedSignature = c.req.header('X-Event-Checksum') || c.req.header('x-event-checksum')
-    
+
     logger.info({
       event: body.event,
       timestamp: body.timestamp,
@@ -359,7 +360,7 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
     if (false) {
       const isValidSignature = wompiService.validateWebhookSignature(body)
       if (!isValidSignature) {
-  logger.error('🚨 Firma de webhook inválida')
+        logger.error('🚨 Firma de webhook inválida')
         return c.json(
           {
             success: false,
@@ -368,9 +369,9 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
           400
         )
       }
-  logger.info('✅ Firma de webhook validada correctamente')
+      logger.info('✅ Firma de webhook validada correctamente')
     } else {
-  logger.warn('⚠️ Webhook sin firma X-Event-Checksum - considera rechazarlo en producción')
+      logger.warn('⚠️ Webhook sin firma X-Event-Checksum - considera rechazarlo en producción')
     }
 
     // Procesar el evento del webhook
@@ -391,7 +392,7 @@ wompiRoutes.openapi(webhookRoute, async (c: Context) => {
       message: result.message,
     }, 200)
   } catch (error: any) {
-  logger.error({ err: error }, 'Error procesando webhook de Wompi')
+    logger.error({ err: error }, 'Error procesando webhook de Wompi')
     return c.json(
       {
         success: false,
@@ -495,22 +496,20 @@ wompiRoutes.openapi(callbackRoute, async (c: Context) => {
         <div class="icon">${status === 'APPROVED' ? '✅' : status === 'DECLINED' ? '❌' : '⏳'}</div>
         <h1>${status === 'APPROVED' ? '¡Pago Exitoso!' : status === 'DECLINED' ? 'Pago Rechazado' : 'Pago Pendiente'}</h1>
         <p>
-          ${
-            status === 'APPROVED'
-              ? 'Tu pago ha sido procesado correctamente.'
-              : status === 'DECLINED'
-              ? 'Tu pago no pudo ser procesado. Por favor intenta nuevamente.'
-              : 'Tu pago está siendo procesado.'
-          }
+          ${status === 'APPROVED'
+      ? 'Tu pago ha sido procesado correctamente.'
+      : status === 'DECLINED'
+        ? 'Tu pago no pudo ser procesado. Por favor intenta nuevamente.'
+        : 'Tu pago está siendo procesado.'
+    }
         </p>
-        ${
-          transactionId
-            ? `<div class="transaction-id">
+        ${transactionId
+      ? `<div class="transaction-id">
                  <strong>ID de Transacción:</strong><br/>
                  ${transactionId}
                </div>`
-            : ''
-        }
+      : ''
+    }
         <button onclick="window.location.href='/'">Volver al Inicio</button>
       </div>
     </body>
@@ -519,5 +518,196 @@ wompiRoutes.openapi(callbackRoute, async (c: Context) => {
 
   return c.html(html)
 })
+
+wompiRoutes.use("/pay-with-points", authMiddleware);
+
+// ==================== RUTA: Pagar 100% con puntos ====================
+
+/**
+ * POST /pay-with-points
+ * Permite al usuario pagar su carrito usando 100% puntos de recompensa.
+ * - Verifica que el usuario tenga suficientes puntos
+ * - Crea la orden desde el carrito
+ * - Deducir los puntos usados
+ * - Marcar la orden como confirmada
+ * - Asignar claves y enviar email de confirmación (mismo flujo que webhook APPROVED)
+ */
+const payWithPointsRoute = createRoute({
+  method: 'post',
+  path: '/pay-with-points',
+  tags: ['Wompi'],
+  summary: 'Pagar una orden existente usando puntos (100%)',
+  description: 'Procesa el pago de una orden PENDIENTE usando puntos de recompensa (requiere autenticación)',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            // Accept either string or number to be flexible with clients
+            orderId: z.union([z.string(), z.number()]).describe('ID de la orden a pagar con puntos'),
+          })
+        }
+      }
+    }
+  },
+  responses: {
+    200: { description: 'Orden procesada exitosamente', content: { 'application/json': { schema: z.object({ success: z.boolean(), orderId: z.string(), message: z.string().optional() }) } } },
+    400: { description: 'Bad request' },
+    401: { description: 'Not authenticated' },
+    404: { description: 'Order not found' },
+    500: { description: 'Server error' }
+  }
+})
+
+wompiRoutes.openapi(payWithPointsRoute, async (c: Context) => {
+  try {
+    // If auth middleware ran earlier, it will set userId in the context.
+    // Prefer that, otherwise fall back to parsing Authorization header and validating the token.
+    let userId = c.get('userId') as string | undefined
+    let userResp: any = null
+
+    if (!userId) {
+      const authHeader = c.req.header('Authorization')
+      const token = authHeader ? authHeader.replace('Bearer ', '') : undefined
+      if (!token) return c.json({ success: false, error: 'Not authenticated' }, 401)
+
+      const { createSupabaseClient } = await import('../services/user.service.js')
+      const client = createSupabaseClient(token)
+      const { data, error: userErr } = await client.auth.getUser()
+      if (userErr || !data?.user) return c.json({ success: false, error: 'Invalid user token' }, 401)
+      userResp = data
+      userId = data.user.id
+    }
+
+    // 2. Obtener orderId del body (acepta string o number)
+    const body = await c.req.json()
+    const rawOrderId = body.orderId
+    if (rawOrderId === undefined || rawOrderId === null) return c.json({ success: false, error: 'orderId is required' }, 400)
+    const orderIdNum = Number(rawOrderId)
+    if (Number.isNaN(orderIdNum)) return c.json({ success: false, error: 'orderId must be numeric' }, 400)
+
+    // 3. Obtener la orden y validar que pertenece al usuario y está pendiente
+    const { getOrderById } = await import('../services/order.service.js')
+    const order = await getOrderById(userId, orderIdNum)
+
+    if (!order) {
+      return c.json({ success: false, error: 'Order not found or does not belong to user' }, 404)
+    }
+    if (order.status !== 'pending') {
+      return c.json({ success: false, error: `Order status is '${order.status}', not 'pending'` }, 400)
+    }
+
+    // 4. Calcular total y puntos requeridos
+    const totalAmount = order.order_items?.reduce((s, it) => s + (it.price || 0) * (it.quantity || 0), 0) || 0;
+
+    const pointsSvc = await import('../services/points.service.js')
+    const { getUserPointsBalance, POINTS_CONSTANTS, pointsToPesos, pesosToPoints, deductPoints, calculateEarnedPoints, addPoints, recordOrderPoints } = pointsSvc
+    const requiredPoints = Math.ceil(totalAmount / POINTS_CONSTANTS.PESOS_PER_POINT)
+
+    // 5. Verificar balance de puntos
+    const balance = await getUserPointsBalance(userId)
+    logger.info(balance);
+    if (!balance || (balance.balance || 0) < requiredPoints) {
+      return c.json({ success: false, error: 'Insufficient points balance', requiredPoints, available: balance?.balance || 0 }, 400)
+    }
+
+    // =================================================================
+    // INICIO: Lógica similar al Webhook 'APPROVED'
+    // =================================================================
+
+    // 6. Deducir puntos del usuario
+    const deducted = await deductPoints(userId, requiredPoints, `Usado en orden #${order.id}`, order.id, { method: 'points' })
+    if (!deducted) {
+      return c.json({ success: false, error: 'Failed to deduct points' }, 500)
+    }
+
+    // 7. Actualizar orden a 'confirmed' y registrar puntos usados
+    const { updateOrderStatusWithPayment } = await import('../services/order.service.js')
+    await updateOrderStatusWithPayment(order.id, 'confirmed', `points-payment-${Date.now()}`, undefined, requiredPoints)
+
+    // 8. Calcular montos y puntos ganados (si aplica)
+    const discountAmount = pointsToPesos(requiredPoints)
+    const paidAmount = Math.max(0, totalAmount - discountAmount)
+    const pointsEarned = calculateEarnedPoints(paidAmount)
+
+    if (pointsEarned > 0) {
+      await addPoints(userId, pointsEarned, 'earned', `Ganado por compra de orden #${order.id}`, order.id, { paidAmount })
+    }
+
+    // 9. Registrar la transacción de puntos en 'order_points'
+    await recordOrderPoints(order.id, userId, requiredPoints, pointsEarned, discountAmount)
+
+    // 10. Asignar claves y enviar email
+    try {
+      const { assignKeysToUser } = await import('../services/product_key.service.js')
+      const { sendOrderEmail } = await import('../services/mail.service.js')
+
+      let totalKeysCount = 0
+      const assignedKeysDetails: Array<{ productId: string; productName: string; keys: Array<{ id: string; license_key: string }> }> = []
+
+      if (order.order_items) {
+        for (const item of order.order_items) {
+          const assigned = await assignKeysToUser(String(item.product_id), order.user_id, item.quantity, item.id)
+          if (assigned.length > 0) {
+            assignedKeysDetails.push({
+              productId: String(item.product_id),
+              productName: item.product?.name || `Producto #${item.product_id}`,
+              keys: assigned.map((k: any) => ({ id: k.id, license_key: k.license_key }))
+            })
+            totalKeysCount += assigned.length
+          }
+        }
+      }
+
+      const attachments: Array<{ data: Buffer | string, filename: string, contentType?: string }> = []
+      if (assignedKeysDetails.length > 0) {
+        let keysFileContent = `CLAVES DE LICENCIA - Orden ${order.id}\n\n`
+        assignedKeysDetails.forEach((product) => {
+          keysFileContent += `PRODUCTO: ${product.productName} (ID: ${product.productId})\n`
+          product.keys.forEach((key: any, idx: number) => {
+            keysFileContent += `${idx + 1}. ${key.license_key} (id: ${key.id})\n`
+          })
+          keysFileContent += '\n'
+        })
+        attachments.push({ data: Buffer.from(keysFileContent, 'utf-8'), filename: `claves-orden-${order.id}.txt`, contentType: 'text/plain; charset=utf-8' })
+      }
+
+      const email = userResp.user.email || ''
+      const customerName = userResp.user.user_metadata?.full_name || email.split('@')[0] || 'Cliente'
+      const reference = `ORDER-${order.id}`
+
+      const emailTemplateUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/email/order-status`
+      await sendOrderEmail({
+        to: email,
+        subject: `✅ Orden ${reference} - Pago Confirmado (Puntos)`,
+        templatePath: emailTemplateUrl,
+        templateQuery: {
+          reference,
+          status: 'confirmed',
+          keysCount: String(totalKeysCount),
+          orderId: String(order.id),
+          customerName,
+          pointsUsed: String(requiredPoints),
+          pointsEarned: String(pointsEarned),
+          discountAmount: String(discountAmount)
+        },
+        attachPdf: false,
+        attachments
+      })
+    } catch (e) {
+      logger.warn({ err: e, orderId: order.id }, 'Failed to assign keys or send email after points payment')
+    }
+
+    // =================================================================
+    // FIN: Lógica similar al Webhook 'APPROVED'
+    // =================================================================
+
+    return c.json({ success: true, orderId: String(order.id), message: 'Order processed successfully using points' }, 200)
+  } catch (error: any) {
+    logger.error({ err: error }, 'Error processing pay-with-points')
+    return c.json({ success: false, error: 'Error processing pay-with-points', details: error?.message }, 500)
+  }
+})
+
 
 export default wompiRoutes

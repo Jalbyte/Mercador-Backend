@@ -110,7 +110,7 @@ describe.skip('C38: CP-001: Registro de nuevo usuario (Integration Tests - Skipp
 // ========================================
 import { vi } from 'vitest'
 import '../mocks/supabase.mock.js'
-import { signupWithEmail } from '@/services/user.service.js'
+import { signupWithEmail } from '../../services/user.service.js'
 import { mockSupabaseClient } from '../mocks/supabase.mock.js'
 
 describe('C38: CP-001: Registro de nuevo usuario (Unit Tests)', () => {
