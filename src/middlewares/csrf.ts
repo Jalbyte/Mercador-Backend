@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono'
-import { CSRF_COOKIE } from '../config/env.js'
+import { CSRF_COOKIE, NODE_ENV, API_URL } from '../config/env.js'
 
 /**
  * Middleware y utilidades para protección CSRF (Cross-Site Request Forgery)
@@ -71,12 +71,24 @@ export function csrfMiddleware() {
  */
 export function issueCsrfCookie(): string {
     const val = crypto.randomUUID()
-    const isProduction = process.env.NODE_ENV === 'production'
+    const isProduction = NODE_ENV === 'production'
+
+    // Determinar Domain igual que en auth.ts/user.service.ts
+    function getCookieDomain(): string | undefined {
+        if (NODE_ENV !== 'production') return undefined
+        if (API_URL && API_URL.includes('mercador.app')) return '.mercador.app'
+        return undefined
+    }
+
+    const domain = getCookieDomain()
+
     const opts = [
         `Path=/`,
         `Max-Age=${60 * 60 * 24}`, // 1 día
         isProduction ? 'Secure' : '',
-        'SameSite=Lax'
+        'SameSite=Lax',
+        isProduction && domain ? `Domain=${domain}` : ''
     ].filter(Boolean).join('; ')
-    return `csrf_token=${val}; ${opts}`
+
+    return `${CSRF_COOKIE}=${val}; ${opts}`
 }

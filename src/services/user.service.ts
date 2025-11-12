@@ -17,9 +17,15 @@ import { Context } from 'hono'
 import { issueCsrfCookie } from '../middlewares/csrf.js'
 import { logger } from '../utils/logger.js'
 
-const DOMAIN = NODE_ENV === 'production'
-  ? '.mercador.app' // ← cambia por tu dominio real
-  : API_URL;
+// Determinar el atributo Domain para cookies: en producción usar .mercador.app cuando aplique,
+// en desarrollo no usar Domain (undefined) para evitar problemas con localhost/hosts distintos.
+function getCookieDomain(): string | undefined {
+  if (NODE_ENV !== 'production') return undefined
+  if (API_URL && API_URL.includes('mercador.app')) return '.mercador.app'
+  return undefined
+}
+
+const DOMAIN = getCookieDomain()
 
 /**
  * Interfaz que representa el perfil de un usuario en el sistema.
@@ -524,20 +530,6 @@ export async function enrollMfa(accessToken: string): Promise<AuthMFAEnrollTOTPR
     return { data: null, error: { message: err?.message ?? String(err) } }
   }
 }
-
-// --- Cookie helpers exported for use in routes ---
-export function clearCookie(name: string, path = '/') {
-  const isProduction = process.env.NODE_ENV === 'production'
-  return [
-    `${name}=;`,
-    `HttpOnly`,
-    `Path=${path}`,
-    `Max-Age=0`,
-    isProduction ? 'Secure' : '',
-    `SameSite=Lax`
-  ].filter(Boolean).join('; ')
-}
-
 export const clearSessionCookie = (): string => {
   const isProduction = NODE_ENV === 'production'
   const accessCookie = [
@@ -547,17 +539,17 @@ export const clearSessionCookie = (): string => {
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
     `SameSite=Lax`,
-    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+    isProduction && DOMAIN ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   const refreshCookie = [
     `sb_refresh_token=;`,
     `HttpOnly`,
-    `Path=/auth`,
+    `Path=/`,
     `Max-Age=0`,
     isProduction ? 'Secure' : '',
     `SameSite=Lax`,
-    isProduction ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
+    isProduction && DOMAIN ? `Domain=${DOMAIN}` : '' // ← AÑADIDO
   ].filter(Boolean).join('; ')
 
   const csrf = issueCsrfCookie()
